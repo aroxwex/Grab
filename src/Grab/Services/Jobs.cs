@@ -50,6 +50,20 @@ public class Downloader : JobBase
 {
     public async Task<JobResult> RunAsync(DownloadRequest r)
     {
+        var res = await RunOnceAsync(r);
+        if (!res.Ok && !res.Cancelled && !string.IsNullOrEmpty(r.Cookies) && res.CookieProblem)
+        {
+            // browser cookies can't always be read (Chrome / Edge / Brave): try again without them
+            r.Cookies = "";
+            Report(new ProgressInfo { Text = "Retrying without cookies…" });
+            res = await RunOnceAsync(r);
+            if (res.Ok) res.Note = "Your browser cookies couldn't be read, so Grab saved it without them.";
+        }
+        return res;
+    }
+
+    async Task<JobResult> RunOnceAsync(DownloadRequest r)
+    {
         var yt = Tools.Find("yt-dlp");
         var ff = Tools.Find("ffmpeg");
         if (yt == null) return new JobResult { Error = "yt-dlp not found. Put yt-dlp.exe in the bin folder." };
@@ -108,7 +122,11 @@ public class Downloader : JobBase
             if (p.ExitCode != 0)
             {
                 var lines = err.Split('\n').Where(l => l.Contains("ERROR")).ToList();
-                return new JobResult { Error = YtDlp.Friendly(lines.Count > 0 ? lines[lines.Count - 1] : err) };
+                return new JobResult
+                {
+                    Error = YtDlp.Friendly(lines.Count > 0 ? lines[lines.Count - 1] : err),
+                    CookieProblem = YtDlp.IsCookieProblem(err),
+                };
             }
 
             string src = null;

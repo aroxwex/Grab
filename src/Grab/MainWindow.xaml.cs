@@ -19,6 +19,8 @@ public partial class MainWindow : Window
     string _localPath = "";
     string _previewSource = "";
     string _lastFile = "";
+    string _lastQuery = "";
+    List<SearchResult> _lastResults;
 
     double _duration;
     double _trimStart;
@@ -33,6 +35,8 @@ public partial class MainWindow : Window
     bool _previewMuted;
     bool _proxyTried;
     bool _pulsing;
+    bool _suppress;          // true while we set the text box from code
+    bool _cookiesBroken;     // cookies failed once, so skip them from now on
     double? _progress;
 
     JobBase _job;
@@ -67,7 +71,7 @@ public partial class MainWindow : Window
         _debounce.Tick += async (s, e) =>
         {
             _debounce.Stop();
-            await FetchAsync();
+            await SubmitAsync(false);
         };
 
         ApplySettingsToUi();
@@ -91,9 +95,9 @@ public partial class MainWindow : Window
         FooterLeft.Text = (yt == null ? "yt-dlp missing" : "yt-dlp " + ver) + "   ·   " + (ff == null ? "ffmpeg missing" : "ffmpeg ready");
 
         if (yt == null)
-            ShowError("yt-dlp not found. Put yt-dlp.exe in the bin folder next to Grab.exe.");
+            ShowMessage("yt-dlp not found. Put yt-dlp.exe in the bin folder next to Grab.exe.", true);
         else if (ff == null)
-            ShowError("ffmpeg not found: merging, MP3 and trimming won't work. Put ffmpeg.exe and ffprobe.exe in the bin folder.");
+            ShowMessage("ffmpeg not found: merging, MP3 and trimming won't work. Put ffmpeg.exe and ffprobe.exe in the bin folder.", true);
     }
 
     void ApplySettingsToUi()
@@ -105,6 +109,7 @@ public partial class MainWindow : Window
         foreach (var rb in new[] { Rb128, Rb192, Rb320 }) rb.IsChecked = (string)rb.Tag == c.AudioBitrate.ToString();
         foreach (var rb in new[] { RbCkNone, RbCkChrome, RbCkEdge, RbCkFirefox, RbCkBrave }) rb.IsChecked = (string)rb.Tag == c.Cookies;
         DirText.Text = c.Dir;
+        RefreshCookiesFileText();
     }
 
     // ------------------------------------------------------------------ state
@@ -123,7 +128,8 @@ public partial class MainWindow : Window
         AudioFormatSection.Visibility = IsAudio ? Visibility.Visible : Visibility.Collapsed;
         BitrateSection.Visibility = IsAudio && SettingsStore.Current.AudioFormat == "mp3" ? Visibility.Visible : Visibility.Collapsed;
         MuteRow.Visibility = IsAudio ? Visibility.Collapsed : Visibility.Visible;
-        FastRow.Visibility = !link && !IsAudio ? Visibility.Visible : Visibility.Collapsed;
+        FastRow.Visibility = !link && !IsAudio && hasMedia ? Visibility.Visible : Visibility.Collapsed;
+        BtnBack.Visibility = _lastResults != null && link && _info != null ? Visibility.Visible : Visibility.Collapsed;
 
         TrimSwitch.IsEnabled = _duration > 0;
         BtnGo.Content = link ? (IsAudio ? "Download audio" : "Download video") : "Export";
@@ -137,10 +143,7 @@ public partial class MainWindow : Window
         ProgressPanel.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
         DonePanel.Visibility = Visibility.Collapsed;
         OptionsScroll.IsEnabled = !busy;
-        LinkBar.IsEnabled = !busy;
-        FileBar.IsEnabled = !busy;
-        RbLink.IsEnabled = !busy;
-        RbFile.IsEnabled = !busy;
+        Omnibox.IsEnabled = !busy;
         if (busy)
         {
             _progress = null;
@@ -152,13 +155,14 @@ public partial class MainWindow : Window
         UpdateState();
     }
 
-    void ShowError(string text)
+    void ShowMessage(string text, bool isError)
     {
         ErrorText.Text = text;
+        ErrorText.Foreground = (Brush)FindResource(isError ? "DangerBrush" : "MutedBrush");
         ErrorText.Visibility = string.IsNullOrEmpty(text) ? Visibility.Collapsed : Visibility.Visible;
     }
 
-    void ClearError() => ShowError("");
+    void ClearError() => ShowMessage("", false);
 
     void SetPreviewStatus(string text)
     {
@@ -166,31 +170,21 @@ public partial class MainWindow : Window
         PreviewStatusBox.Visibility = string.IsNullOrEmpty(text) ? Visibility.Collapsed : Visibility.Visible;
     }
 
-    // ------------------------------------------------------------------ source switching
-
-    void Source_Click(object sender, RoutedEventArgs e)
+    void SetHint(string text)
     {
-        SetSource(RbFile.IsChecked == true ? SourceKind.File : SourceKind.Link);
+        OmniHint.Text = text;
+        OmniHint.Visibility = string.IsNullOrEmpty(text) ? Visibility.Collapsed : Visibility.Visible;
     }
 
-    void SetSource(SourceKind kind)
+    void SetUrlText(string text)
     {
-        RbLink.IsChecked = kind == SourceKind.Link;
-        RbFile.IsChecked = kind == SourceKind.File;
-        if (kind == _source) return;
-
-        _source = kind;
-        LinkBar.Visibility = kind == SourceKind.Link ? Visibility.Visible : Visibility.Collapsed;
-        FileBar.Visibility = kind == SourceKind.File ? Visibility.Visible : Visibility.Collapsed;
-        ResetPreview();
-        ClearError();
-        if (kind == SourceKind.Link && IsUrl(UrlBox.Text.Trim()))
-        {
-            _debounce.Stop();
-            _debounce.Start();
-        }
-        UpdateState();
+        _suppress = true;
+        UrlBox.Text = text;
+        UrlBox.CaretIndex = text.Length;
+        _suppress = false;
     }
+
+    string CookieSpec => _cookiesBroken ? "" : SettingsStore.CookieSpec();
 
     void ResetPreview()
     {
@@ -213,12 +207,12 @@ public partial class MainWindow : Window
         ThumbImage.Source = null;
         ThumbImage.Visibility = Visibility.Collapsed;
         Player.Visibility = Visibility.Collapsed;
+        ResultsScroll.Visibility = Visibility.Collapsed;
         EmptyState.Visibility = Visibility.Visible;
         PlayOverlay.Visibility = Visibility.Collapsed;
         SetPreviewStatus("");
         InfoPanel.Visibility = Visibility.Collapsed;
         TimelineCard.Visibility = Visibility.Collapsed;
-        FetchText.Visibility = Visibility.Collapsed;
 
         TrimSwitch.IsChecked = false;
         TrimFields.Visibility = Visibility.Collapsed;
@@ -232,9 +226,6 @@ public partial class MainWindow : Window
         RbVideo.IsEnabled = true;
         BuildResChips(null);
 
-        FileNameText.Text = "Choose a video or audio file from your computer";
-        FileNameText.Foreground = (Brush)FindResource("DimBrush");
-
         DonePanel.Visibility = Visibility.Collapsed;
         if (!_busy) BtnGo.Visibility = Visibility.Visible;
     }
@@ -244,65 +235,243 @@ public partial class MainWindow : Window
         return Uri.TryCreate(text, UriKind.Absolute, out var u) && (u.Scheme == "http" || u.Scheme == "https");
     }
 
-    // ------------------------------------------------------------------ link mode
+    static string CleanInput(string text)
+    {
+        return (text ?? "").Trim().Trim('"');
+    }
 
-    void Paste_Click(object sender, RoutedEventArgs e)
+    // ------------------------------------------------------------------ the one box
+
+    async void Paste_Click(object sender, RoutedEventArgs e)
     {
         try
         {
+            if (Clipboard.ContainsFileDropList())
+            {
+                var files = Clipboard.GetFileDropList();
+                if (files.Count > 0) { LoadLocal(files[0]); return; }
+            }
             if (!Clipboard.ContainsText()) return;
-            var text = Clipboard.GetText().Trim();
+            var text = CleanInput(Clipboard.GetText());
             if (text.Length == 0) return;
-            SetSource(SourceKind.Link);
-            UrlBox.Text = text;
-            UrlBox.CaretIndex = text.Length;
+
+            SetUrlText(text);
             UrlBox.Focus();
+            if (IsUrl(text) || File.Exists(text))
+            {
+                _lastResults = null;
+                await SubmitAsync(false);
+            }
+            else
+            {
+                SetHint("Press Enter to search");
+            }
         }
         catch
         {
-            ShowError("Couldn't read the clipboard. Press Ctrl+V in the link box instead.");
+            ShowMessage("Couldn't read the clipboard. Press Ctrl+V in the box instead.", true);
         }
     }
 
     void UrlBox_TextChanged(object sender, TextChangedEventArgs e)
     {
-        if (!_ready) return;
+        if (!_ready || _suppress || _busy) return;
         _debounce.Stop();
-        _debounce.Start();
+        var text = CleanInput(UrlBox.Text);
+
+        if (text.Length == 0)
+        {
+            _lastResults = null;
+            SetHint("");
+            ClearError();
+            ResetPreview();
+            UpdateState();
+        }
+        else if (IsUrl(text) || File.Exists(text))
+        {
+            SetHint("");
+            _debounce.Start();                 // links and file paths load by themselves
+        }
+        else
+        {
+            SetHint("Press Enter to search");  // plain words wait for Enter
+        }
     }
 
     async void UrlBox_KeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key != Key.Enter) return;
         _debounce.Stop();
-        await FetchAsync();
+        await SubmitAsync(true);
     }
 
-    async Task FetchAsync()
+    /// <summary>Decides what the box holds: a link, a file path, or words to search for.</summary>
+    async Task SubmitAsync(bool allowSearch)
     {
-        if (_source != SourceKind.Link || _busy) return;
-        var url = UrlBox.Text.Trim();
-        if (!IsUrl(url))
-        {
-            if (url.Length == 0) { ResetPreview(); ClearError(); UpdateState(); }
-            return;
-        }
+        if (_busy) return;
+        var text = CleanInput(UrlBox.Text);
+        if (text.Length == 0) return;
 
+        if (IsUrl(text))
+        {
+            _lastResults = null;
+            await FetchAsync();
+        }
+        else if (File.Exists(text))
+        {
+            LoadLocal(text);
+        }
+        else if (allowSearch && text.Length >= 2)
+        {
+            await SearchAsync(text);
+        }
+    }
+
+    // ------------------------------------------------------------------ search
+
+    async Task SearchAsync(string query)
+    {
         ClearError();
         ResetPreview();
         var token = _fetchToken;
-        FetchText.Visibility = Visibility.Visible;
-        var cookies = SettingsStore.Current.Cookies;
+        _lastQuery = query;
+        SetHint("Searching…");
 
-        var result = await YtDlp.GetInfoAsync(url, cookies);
+        var r = await YtDlp.SearchAsync(query);
         if (token != _fetchToken) return;
-        FetchText.Visibility = Visibility.Collapsed;
+        SetHint("");
+
+        if (r.Items == null)
+        {
+            ShowMessage(r.Error, true);
+            UpdateState();
+            return;
+        }
+        if (r.Items.Count == 0)
+        {
+            ShowMessage("No results for \"" + query + "\".", false);
+            return;
+        }
+
+        _lastResults = r.Items;
+        ShowResults(r.Items);
+        UpdateState();
+    }
+
+    void ShowResults(List<SearchResult> items)
+    {
+        ResetPreview();
+        EmptyState.Visibility = Visibility.Collapsed;
+        ResultsList.Children.Clear();
+        foreach (var item in items) ResultsList.Children.Add(MakeResultRow(item));
+        ResultsScroll.ScrollToTop();
+        ResultsScroll.Visibility = Visibility.Visible;
+    }
+
+    Button MakeResultRow(SearchResult r)
+    {
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var thumb = new Border
+        {
+            Width = 128,
+            Height = 72,
+            CornerRadius = new CornerRadius(8),
+            Background = (Brush)FindResource("Panel2Brush"),
+            Clip = new RectangleGeometry(new Rect(0, 0, 128, 72), 8, 8),
+        };
+        try
+        {
+            thumb.Child = new Image { Source = new BitmapImage(new Uri(r.Thumb)), Stretch = Stretch.UniformToFill };
+        }
+        catch
+        {
+            // thumbnail is optional
+        }
+        grid.Children.Add(thumb);
+
+        var text = new StackPanel { Margin = new Thickness(14, 0, 4, 0), VerticalAlignment = VerticalAlignment.Center };
+        text.Children.Add(new TextBlock
+        {
+            Text = r.Title,
+            FontSize = 14,
+            FontWeight = FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            MaxHeight = 40,
+            HorizontalAlignment = HorizontalAlignment.Left,
+        });
+        var meta = string.Join("   ·   ", new[] { r.Channel, r.Duration > 0 ? Fmt.Time(r.Duration) : "" }.Where(x => !string.IsNullOrEmpty(x)));
+        text.Children.Add(new TextBlock
+        {
+            Text = meta,
+            Foreground = (Brush)FindResource("MutedBrush"),
+            FontSize = 12,
+            Margin = new Thickness(0, 4, 0, 0),
+            HorizontalAlignment = HorizontalAlignment.Left,
+        });
+        Grid.SetColumn(text, 1);
+        grid.Children.Add(text);
+
+        var button = new Button
+        {
+            Content = grid,
+            Padding = new Thickness(8),
+            Margin = new Thickness(0, 0, 0, 8),
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+        };
+        button.Click += async (s, e) => await PickResultAsync(r);
+        return button;
+    }
+
+    async Task PickResultAsync(SearchResult r)
+    {
+        SetUrlText(r.Url);
+        await FetchAsync();
+    }
+
+    void Back_Click(object sender, RoutedEventArgs e)
+    {
+        if (_lastResults == null) return;
+        SetUrlText(_lastQuery);
+        ClearError();
+        ShowResults(_lastResults);
+        UpdateState();
+    }
+
+    // ------------------------------------------------------------------ link mode
+
+    async Task FetchAsync()
+    {
+        if (_busy) return;
+        var url = CleanInput(UrlBox.Text);
+        if (!IsUrl(url)) return;
+
+        ClearError();
+        ResetPreview();
+        _source = SourceKind.Link;
+        var token = _fetchToken;
+        SetHint("Loading…");
+        var spec = CookieSpec;
+
+        var result = await YtDlp.GetInfoAsync(url, spec);
+        if (token != _fetchToken) return;
+        SetHint("");
 
         if (result.Info == null)
         {
-            ShowError(result.Error);
+            ShowMessage(result.Error, true);
             UpdateState();
             return;
+        }
+
+        if (result.Info.CookiesSkipped)
+        {
+            _cookiesBroken = true;
+            spec = "";
+            ShowMessage("Your browser cookies couldn't be read, so Grab is continuing without them.", false);
         }
 
         _info = result.Info;
@@ -340,12 +509,12 @@ public partial class MainWindow : Window
         }
         UpdateState();
 
-        SetPreviewStatus("Loading preview…");
-        var stream = await YtDlp.GetPreviewUrlAsync(url, cookies);
+        SetPreviewStatus("Loading video…");
+        var stream = await YtDlp.GetPreviewUrlAsync(url, spec);
         if (token != _fetchToken) return;
         if (string.IsNullOrEmpty(stream))
         {
-            SetPreviewStatus("No preview for this link. You can still type the start and end times.");
+            SetPreviewStatus("Can't play this one here. You can still type the start and end times.");
             return;
         }
         LoadPreview(stream);
@@ -413,26 +582,29 @@ public partial class MainWindow : Window
         if (_busy) return;
         if (!File.Exists(path))
         {
-            ShowError("That file doesn't exist.");
+            ShowMessage("That file doesn't exist.", true);
             return;
         }
 
         ResetPreview();
         ClearError();
+        SetHint("");
+        _lastResults = null;
+        _source = SourceKind.File;
         _localPath = path;
-        FileNameText.Text = Path.GetFileName(path);
-        FileNameText.Foreground = (Brush)FindResource("TextBrush");
+        SetUrlText(path);
+
         TitleText.Text = Path.GetFileNameWithoutExtension(path);
         MetaText.Text = Fmt.Size(new FileInfo(path).Length) + "   ·   " + Path.GetExtension(path).TrimStart('.').ToUpperInvariant();
         InfoPanel.Visibility = Visibility.Visible;
         EmptyState.Visibility = Visibility.Collapsed;
         TimelineCard.Visibility = Visibility.Visible;
-        SetPreviewStatus("Loading preview…");
+        SetPreviewStatus("Loading video…");
         LoadPreview(path);
         UpdateState();
     }
 
-    void Window_Drop(object sender, DragEventArgs e)
+    async void Window_Drop(object sender, DragEventArgs e)
     {
         if (_busy) return;
         try
@@ -440,29 +612,26 @@ public partial class MainWindow : Window
             if (e.Data.GetDataPresent(DataFormats.FileDrop))
             {
                 var files = (string[])e.Data.GetData(DataFormats.FileDrop);
-                if (files != null && files.Length > 0)
-                {
-                    SetSource(SourceKind.File);
-                    LoadLocal(files[0]);
-                }
+                if (files != null && files.Length > 0) LoadLocal(files[0]);
             }
             else if (e.Data.GetDataPresent(DataFormats.UnicodeText))
             {
-                var text = ((string)e.Data.GetData(DataFormats.UnicodeText)).Trim();
+                var text = CleanInput((string)e.Data.GetData(DataFormats.UnicodeText));
                 if (IsUrl(text))
                 {
-                    SetSource(SourceKind.Link);
-                    UrlBox.Text = text;
+                    SetUrlText(text);
+                    _lastResults = null;
+                    await FetchAsync();
                 }
             }
         }
         catch
         {
-            ShowError("Couldn't open what you dropped.");
+            ShowMessage("Couldn't open what you dropped.", true);
         }
     }
 
-    // ------------------------------------------------------------------ preview player
+    // ------------------------------------------------------------------ player
 
     void LoadPreview(string source)
     {
@@ -470,14 +639,14 @@ public partial class MainWindow : Window
         _mediaReady = false;
         try
         {
-            Player.IsMuted = true;                 // avoid a blip of sound while we wait for the first frame
+            Player.IsMuted = true;                 // no blip of sound while waiting for the first frame
             Player.Source = new Uri(source);
             Player.Visibility = Visibility.Visible;
             Player.Play();
         }
         catch
         {
-            SetPreviewStatus("Couldn't open the preview.");
+            SetPreviewStatus("Couldn't open the video.");
         }
     }
 
@@ -512,14 +681,14 @@ public partial class MainWindow : Window
         _mediaReady = false;
         _playing = false;
 
-        // Windows can't play every format (MKV, WebM, some codecs): make a small MP4 copy and preview that.
+        // Windows can't play every format (MKV, WebM, some codecs): make a small MP4 copy and play that.
         if (!_proxyTried && !string.IsNullOrEmpty(_previewSource))
         {
             _proxyTried = true;
             var token = _fetchToken;
             _proxyCts = new CancellationTokenSource();
             var cts = _proxyCts;
-            SetPreviewStatus("Preparing preview…");
+            SetPreviewStatus("Preparing the player…");
             var proxy = await LocalExporter.MakeProxyAsync(_previewSource, cts.Token);
             if (cts.IsCancellationRequested || token != _fetchToken) return;
             if (!string.IsNullOrEmpty(proxy))
@@ -531,7 +700,7 @@ public partial class MainWindow : Window
 
         Player.Visibility = Visibility.Collapsed;
         if (ThumbImage.Source != null) ThumbImage.Visibility = Visibility.Visible;
-        SetPreviewStatus("Can't preview this one here. You can still type the start and end times.");
+        SetPreviewStatus("Can't play this one here. You can still type the start and end times.");
     }
 
     void Player_MediaEnded(object sender, RoutedEventArgs e)
@@ -663,7 +832,7 @@ public partial class MainWindow : Window
         {
             _trimStart = oldStart;
             _trimEnd = oldEnd;
-            ShowError("The end has to be after the start.");
+            ShowMessage("The end has to be after the start.", true);
         }
         else
         {
@@ -795,7 +964,7 @@ public partial class MainWindow : Window
                 _job = job;
                 result = await job.RunAsync(new DownloadRequest
                 {
-                    Url = UrlBox.Text.Trim(),
+                    Url = CleanInput(UrlBox.Text),
                     Audio = IsAudio,
                     Height = _height,
                     VideoFormat = cfg.VideoFormat,
@@ -806,7 +975,7 @@ public partial class MainWindow : Window
                     TrimEnd = end,
                     Mute = mute,
                     OutDir = cfg.Dir,
-                    Cookies = cfg.Cookies,
+                    Cookies = CookieSpec,
                     Duration = _duration,
                 });
             }
@@ -847,10 +1016,15 @@ public partial class MainWindow : Window
             DoneFile.Text = Path.GetFileName(result.File);
             BtnGo.Visibility = Visibility.Collapsed;
             DonePanel.Visibility = Visibility.Visible;
+            if (!string.IsNullOrEmpty(result.Note))
+            {
+                _cookiesBroken = true;
+                ShowMessage(result.Note, false);
+            }
         }
         else if (!result.Cancelled)
         {
-            ShowError(result.Error);
+            ShowMessage(result.Error, true);
         }
     }
 
@@ -913,18 +1087,18 @@ public partial class MainWindow : Window
     {
         DonePanel.Visibility = Visibility.Collapsed;
         BtnGo.Visibility = Visibility.Visible;
-        if (_source == SourceKind.Link)
+        if (_lastResults != null && _source == SourceKind.Link)
         {
-            UrlBox.Text = "";
-            ResetPreview();
-            UrlBox.Focus();
+            Back_Click(sender, e);                     // go back to the search results
+            return;
         }
-        else
-        {
-            ResetPreview();
-        }
+        SetUrlText("");
+        _lastResults = null;
+        ResetPreview();
         ClearError();
+        SetHint("");
         UpdateState();
+        UrlBox.Focus();
     }
 
     // ------------------------------------------------------------------ settings
@@ -941,6 +1115,36 @@ public partial class MainWindow : Window
     {
         SettingsStore.Current.Cookies = (string)((RadioButton)sender).Tag ?? "";
         SettingsStore.Save();
+        _cookiesBroken = false;
+    }
+
+    void RefreshCookiesFileText()
+    {
+        var file = SettingsStore.Current.CookiesFile;
+        CookiesFileText.Text = string.IsNullOrEmpty(file) ? "No cookies file selected" : Path.GetFileName(file);
+        BtnCookiesClear.Visibility = string.IsNullOrEmpty(file) ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    void CookiesFile_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new OpenFileDialog
+        {
+            Title = "Choose a cookies.txt file",
+            Filter = "Cookies file|*.txt|All files|*.*",
+        };
+        if (dlg.ShowDialog(this) != true) return;
+        SettingsStore.Current.CookiesFile = dlg.FileName;
+        SettingsStore.Save();
+        _cookiesBroken = false;
+        RefreshCookiesFileText();
+    }
+
+    void CookiesClear_Click(object sender, RoutedEventArgs e)
+    {
+        SettingsStore.Current.CookiesFile = "";
+        SettingsStore.Save();
+        _cookiesBroken = false;
+        RefreshCookiesFileText();
     }
 
     async void Update_Click(object sender, RoutedEventArgs e)

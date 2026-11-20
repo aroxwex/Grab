@@ -19,50 +19,33 @@
             </Grid.RowDefinitions>
 
             <!-- Header -->
-            <Grid Grid.Row="0" Margin="24,16,24,10">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
+            <Grid Grid.Row="0" Margin="24,16,24,12">
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                    <Image Source="Assets/logo.png" Width="38" Height="38"
-                           RenderOptions.BitmapScalingMode="HighQuality"/>
-                    <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
-                        <TextBlock Text="Grab" FontSize="18" FontWeight="Bold"/>
-                        <TextBlock Text="Download, trim and convert video" Style="{StaticResource Muted}" FontSize="11.5"/>
-                    </StackPanel>
+                    <Image Source="Assets/logo.png" Width="36" Height="36" RenderOptions.BitmapScalingMode="HighQuality"/>
+                    <TextBlock Text="Grab" FontSize="19" FontWeight="Bold" Margin="12,0,0,0" VerticalAlignment="Center"/>
                 </StackPanel>
-                <Border Grid.Column="2" Style="{StaticResource SegHost}" VerticalAlignment="Center">
-                    <UniformGrid Rows="1">
-                        <RadioButton x:Name="RbLink" GroupName="src" Content="Link" IsChecked="True"
-                                     Style="{StaticResource SegButton}" Click="Source_Click"/>
-                        <RadioButton x:Name="RbFile" GroupName="src" Content="File"
-                                     Style="{StaticResource SegButton}" Click="Source_Click"/>
-                    </UniformGrid>
-                </Border>
-                <Button Grid.Column="3" x:Name="BtnSettings" Content="&#xE713;" Margin="10,0,0,0"
+                <Button x:Name="BtnSettings" Content="&#xE713;" HorizontalAlignment="Right"
                         Style="{StaticResource IconButton}" ToolTip="Settings" Click="Settings_Click"/>
             </Grid>
 
-            <!-- Link / file bar -->
+            <!-- One box for everything: link, search words or a file -->
             <StackPanel Grid.Row="1" Margin="24,0,24,14">
-                <Border x:Name="LinkBar" Style="{StaticResource Card}" Height="50" Background="{StaticResource PanelBrush}">
-                    <Grid Margin="16,0,8,0">
+                <Border x:Name="Omnibox" Style="{StaticResource Card}" Height="58" CornerRadius="16">
+                    <Grid Margin="18,0,10,0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="&#xE71B;" FontFamily="{StaticResource IconFont}" FontSize="15"
-                                   Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                        <TextBlock Text="&#xE721;" FontFamily="{StaticResource IconFont}" FontSize="16"
+                                   Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,14,0"/>
                         <Grid Grid.Column="1">
-                            <TextBox x:Name="UrlBox" Style="{StaticResource BareTextBox}" TextChanged="UrlBox_TextChanged"
-                                     KeyDown="UrlBox_KeyDown" VerticalAlignment="Center"/>
-                            <TextBlock Text="Paste a video link (YouTube, X, Instagram, TikTok…)" IsHitTestVisible="False"
-                                       Foreground="{StaticResource DimBrush}" FontSize="14" VerticalAlignment="Center" Margin="2,0,0,0">
+                            <TextBox x:Name="UrlBox" Style="{StaticResource BareTextBox}" FontSize="15"
+                                     TextChanged="UrlBox_TextChanged" KeyDown="UrlBox_KeyDown" VerticalAlignment="Center"/>
+                            <TextBlock Text="Paste a link, or type to search YouTube" IsHitTestVisible="False"
+                                       Foreground="{StaticResource DimBrush}" FontSize="15" VerticalAlignment="Center" Margin="2,0,0,0">
                                 <TextBlock.Style>
                                     <Style TargetType="TextBlock">
                                         <Setter Property="Visibility" Value="Collapsed"/>
@@ -75,33 +58,25 @@
                                 </TextBlock.Style>
                             </TextBlock>
                         </Grid>
-                        <TextBlock x:Name="FetchText" Grid.Column="2" Text="Fetching…" Style="{StaticResource Muted}"
-                                   VerticalAlignment="Center" Margin="0,0,10,0" Visibility="Collapsed"/>
-                        <Button x:Name="BtnPaste" Grid.Column="3" Content="Paste" Style="{StaticResource SmallButton}"
-                                Click="Paste_Click"/>
+                        <TextBlock x:Name="OmniHint" Grid.Column="2" Style="{StaticResource Muted}" VerticalAlignment="Center"
+                                   Margin="0,0,12,0" Visibility="Collapsed"/>
+                        <Button x:Name="BtnPaste" Grid.Column="3" Style="{StaticResource PillPrimary}" Click="Paste_Click"
+                                ToolTip="Paste from the clipboard (link or file)">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="&#xE77F;" FontFamily="{StaticResource IconFont}" FontSize="14" VerticalAlignment="Center"/>
+                                <TextBlock Text="Paste" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="BtnOpenFile" Grid.Column="4" Style="{StaticResource PillButton}" Margin="8,0,0,0"
+                                Click="OpenFile_Click" ToolTip="Open a video or audio file from your computer">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="&#xE8E5;" FontFamily="{StaticResource IconFont}" FontSize="14" VerticalAlignment="Center"/>
+                                <TextBlock Text="Open file" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
                     </Grid>
                 </Border>
-
-                <Border x:Name="FileBar" Style="{StaticResource Card}" Height="50" Visibility="Collapsed"
-                        Background="{StaticResource PanelBrush}">
-                    <Grid Margin="16,0,8,0">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="&#xE8E5;" FontFamily="{StaticResource IconFont}" FontSize="15"
-                                   Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,12,0"/>
-                        <TextBlock x:Name="FileNameText" Grid.Column="1" Text="Choose a video or audio file from your computer"
-                                   Foreground="{StaticResource DimBrush}" FontSize="14" VerticalAlignment="Center"
-                                   TextTrimming="CharacterEllipsis"/>
-                        <Button x:Name="BtnOpenFile" Grid.Column="2" Content="Open file…" Style="{StaticResource SmallButton}"
-                                Click="OpenFile_Click"/>
-                    </Grid>
-                </Border>
-
-                <TextBlock x:Name="ErrorText" Foreground="{StaticResource DangerBrush}" FontSize="12.5"
-                           Margin="4,10,0,0" TextWrapping="Wrap" Visibility="Collapsed"/>
+                <TextBlock x:Name="ErrorText" FontSize="12.5" Margin="6,10,0,0" TextWrapping="Wrap" Visibility="Collapsed"/>
             </StackPanel>
 
             <!-- Main content -->
@@ -112,7 +87,7 @@
                     <ColumnDefinition Width="372"/>
                 </Grid.ColumnDefinitions>
 
-                <!-- Left: preview + trim -->
+                <!-- Left: results / player + trim -->
                 <Grid Grid.Column="0">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="*"/>
@@ -131,13 +106,27 @@
                                           MediaEnded="Player_MediaEnded"/>
 
                             <StackPanel x:Name="EmptyState" VerticalAlignment="Center" HorizontalAlignment="Center">
-                                <Image Source="Assets/logo.png" Width="76" Height="76" Opacity="0.9"
-                                       RenderOptions.BitmapScalingMode="HighQuality"/>
-                                <TextBlock Text="Paste a link or drop a video file here" FontSize="15" FontWeight="SemiBold"
-                                           HorizontalAlignment="Center" Margin="0,16,0,4"/>
-                                <TextBlock Text="Preview it, pick the part you want, then save it."
+                                <Image Source="Assets/logo.png" Width="72" Height="72" RenderOptions.BitmapScalingMode="HighQuality"/>
+                                <TextBlock Text="What are we grabbing?" FontSize="18" FontWeight="SemiBold"
+                                           HorizontalAlignment="Center" Margin="0,16,0,6"/>
+                                <TextBlock Text="Paste a link, search YouTube, or drop a video file anywhere."
                                            Style="{StaticResource Muted}" HorizontalAlignment="Center"/>
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,18,0,0">
+                                    <Border Style="{StaticResource Card}" CornerRadius="9" Padding="10,5" Margin="0,0,8,0" Background="{StaticResource PanelBrush}">
+                                        <TextBlock Text="Watch it first" Style="{StaticResource Muted}"/>
+                                    </Border>
+                                    <Border Style="{StaticResource Card}" CornerRadius="9" Padding="10,5" Margin="0,0,8,0" Background="{StaticResource PanelBrush}">
+                                        <TextBlock Text="Trim visually" Style="{StaticResource Muted}"/>
+                                    </Border>
+                                    <Border Style="{StaticResource Card}" CornerRadius="9" Padding="10,5" Background="{StaticResource PanelBrush}">
+                                        <TextBlock Text="MP4 · MP3 · more" Style="{StaticResource Muted}"/>
+                                    </Border>
+                                </StackPanel>
                             </StackPanel>
+
+                            <ScrollViewer x:Name="ResultsScroll" VerticalScrollBarVisibility="Auto" Padding="12" Visibility="Collapsed">
+                                <StackPanel x:Name="ResultsList"/>
+                            </ScrollViewer>
 
                             <Border x:Name="PlayOverlay" Width="64" Height="64" CornerRadius="32" Background="#AA000000"
                                     HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"
@@ -153,10 +142,23 @@
                         </Grid>
                     </Border>
 
-                    <StackPanel x:Name="InfoPanel" Grid.Row="1" Margin="4,12,4,0" Visibility="Collapsed">
-                        <TextBlock x:Name="TitleText" FontSize="15" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
-                        <TextBlock x:Name="MetaText" Style="{StaticResource Muted}" Margin="0,2,0,0"/>
-                    </StackPanel>
+                    <Grid x:Name="InfoPanel" Grid.Row="1" Margin="4,12,4,0" Visibility="Collapsed">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock x:Name="TitleText" FontSize="15" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                            <TextBlock x:Name="MetaText" Style="{StaticResource Muted}" Margin="0,2,0,0"/>
+                        </StackPanel>
+                        <Button x:Name="BtnBack" Grid.Column="1" Style="{StaticResource SmallButton}" Margin="12,0,0,0"
+                                VerticalAlignment="Center" Visibility="Collapsed" Click="Back_Click" ToolTip="Back to the search results">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="&#xE72B;" FontFamily="{StaticResource IconFont}" FontSize="12" VerticalAlignment="Center"/>
+                                <TextBlock Text="Results" Margin="7,0,0,0"/>
+                            </StackPanel>
+                        </Button>
+                    </Grid>
 
                     <Border x:Name="TimelineCard" Grid.Row="2" Style="{StaticResource Card}" Margin="0,12,0,0"
                             Padding="14,12,14,12" Visibility="Collapsed">
@@ -167,16 +169,18 @@
                                     <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
                                 <Button x:Name="BtnPlay" Style="{StaticResource PlayButton}" Content="&#xE768;" Click="Play_Click"/>
                                 <TextBlock x:Name="TimeText" Grid.Column="1" Text="0:00 / 0:00" Margin="12,0,0,0"
                                            VerticalAlignment="Center" Typography.NumeralAlignment="Tabular"/>
-                                <Button x:Name="BtnPreviewMute" Grid.Column="3" Content="&#xE767;" Style="{StaticResource IconButton}"
-                                        ToolTip="Mute preview" Click="PreviewMute_Click" Margin="0,0,10,0"/>
-                                <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center">
-                                    <TextBlock Text="&#xE8C6;" FontFamily="{StaticResource IconFont}" FontSize="14"
-                                               Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <Button x:Name="BtnPreviewMute" Content="&#xE767;" Style="{StaticResource IconButton}"
+                                            ToolTip="Mute the preview" Click="PreviewMute_Click" Margin="0,0,12,0"/>
+                                    <StackPanel x:Name="MuteRow" Orientation="Horizontal" Margin="0,0,20,0"
+                                                ToolTip="Save the video without sound">
+                                        <TextBlock Text="Remove sound" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                        <CheckBox x:Name="MuteSwitch" Style="{StaticResource Switch}"/>
+                                    </StackPanel>
                                     <TextBlock Text="Trim" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,10,0"/>
                                     <CheckBox x:Name="TrimSwitch" Style="{StaticResource Switch}" Click="TrimSwitch_Click"/>
                                 </StackPanel>
@@ -217,8 +221,8 @@
                     </Border>
                 </Grid>
 
-                <!-- Right: options -->
-                <Border Grid.Column="2" Style="{StaticResource Card}" Margin="0,0,0,0">
+                <!-- Right: output options -->
+                <Border Grid.Column="2" Style="{StaticResource Card}">
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="*"/>
@@ -240,7 +244,7 @@
                                 <StackPanel x:Name="ResSection" Margin="0,20,0,0">
                                     <TextBlock Text="RESOLUTION" Style="{StaticResource SectionLabel}"/>
                                     <WrapPanel x:Name="ResPanel"/>
-                                    <TextBlock x:Name="ResEmpty" Text="Paste a link to see the available resolutions."
+                                    <TextBlock x:Name="ResEmpty" Text="Resolutions show up here once a video is loaded."
                                                Style="{StaticResource Muted}" TextWrapping="Wrap"/>
                                 </StackPanel>
 
@@ -287,21 +291,7 @@
                                     </StackPanel>
                                 </StackPanel>
 
-                                <Border Height="1" Background="{StaticResource LineSoftBrush}" Margin="0,20,0,4"/>
-
-                                <Grid x:Name="MuteRow" Margin="0,10,0,0">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <StackPanel>
-                                        <TextBlock Text="Mute" FontWeight="SemiBold"/>
-                                        <TextBlock Text="Remove the sound from the video" Style="{StaticResource Muted}"/>
-                                    </StackPanel>
-                                    <CheckBox x:Name="MuteSwitch" Grid.Column="1" Style="{StaticResource Switch}"/>
-                                </Grid>
-
-                                <Grid x:Name="FastRow" Margin="0,14,0,0" Visibility="Collapsed">
+                                <Grid x:Name="FastRow" Margin="0,20,0,0" Visibility="Collapsed">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
@@ -314,7 +304,7 @@
                                     <CheckBox x:Name="FastSwitch" Grid.Column="1" Style="{StaticResource Switch}"/>
                                 </Grid>
 
-                                <Border Height="1" Background="{StaticResource LineSoftBrush}" Margin="0,18,0,14"/>
+                                <Border Height="1" Background="{StaticResource LineSoftBrush}" Margin="0,20,0,16"/>
 
                                 <TextBlock Text="SAVE TO" Style="{StaticResource SectionLabel}"/>
                                 <Grid>
@@ -392,7 +382,7 @@
 
         <!-- Settings overlay -->
         <Grid x:Name="SettingsOverlay" Background="#CC000000" Visibility="Collapsed" MouseLeftButtonDown="SettingsBackdrop_Click">
-            <Border Style="{StaticResource Card}" Width="460" Padding="24" HorizontalAlignment="Center" VerticalAlignment="Center"
+            <Border Style="{StaticResource Card}" Width="480" Padding="24" HorizontalAlignment="Center" VerticalAlignment="Center"
                     Background="{StaticResource PanelBrush}" MouseLeftButtonDown="SettingsCard_Click">
                 <StackPanel>
                     <Grid>
@@ -401,23 +391,36 @@
                                 Width="32" Height="32" Click="SettingsClose_Click"/>
                     </Grid>
 
-                    <TextBlock Text="BROWSER COOKIES" Style="{StaticResource SectionLabel}" Margin="0,20,0,8"/>
+                    <TextBlock Text="COOKIES (ONLY IF A SITE ASKS FOR A LOGIN)" Style="{StaticResource SectionLabel}" Margin="0,20,0,8"/>
                     <Border Style="{StaticResource SegHost}">
                         <UniformGrid Rows="1">
-                            <RadioButton x:Name="RbCkNone" GroupName="ck" Content="None" Tag="" IsChecked="True"
+                            <RadioButton x:Name="RbCkNone" GroupName="ck" Content="Off" Tag="" IsChecked="True"
+                                         Style="{StaticResource SegButton}" Click="Cookies_Click"/>
+                            <RadioButton x:Name="RbCkFirefox" GroupName="ck" Content="Firefox" Tag="firefox"
                                          Style="{StaticResource SegButton}" Click="Cookies_Click"/>
                             <RadioButton x:Name="RbCkChrome" GroupName="ck" Content="Chrome" Tag="chrome"
                                          Style="{StaticResource SegButton}" Click="Cookies_Click"/>
                             <RadioButton x:Name="RbCkEdge" GroupName="ck" Content="Edge" Tag="edge"
                                          Style="{StaticResource SegButton}" Click="Cookies_Click"/>
-                            <RadioButton x:Name="RbCkFirefox" GroupName="ck" Content="Firefox" Tag="firefox"
-                                         Style="{StaticResource SegButton}" Click="Cookies_Click"/>
                             <RadioButton x:Name="RbCkBrave" GroupName="ck" Content="Brave" Tag="brave"
                                          Style="{StaticResource SegButton}" Click="Cookies_Click"/>
                         </UniformGrid>
                     </Border>
-                    <TextBlock Text="Pick the browser you're signed in with if a site asks you to prove you're not a bot or to verify your age. You may need to close that browser first."
+                    <TextBlock Text="Chrome, Edge and Brave often can't be read anymore. Firefox or a cookies.txt file is more reliable. If cookies fail, Grab retries without them automatically."
                                Style="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,8,0,0"/>
+                    <Grid Margin="0,10,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock x:Name="CookiesFileText" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                   Style="{StaticResource Muted}"/>
+                        <Button x:Name="BtnCookiesFile" Grid.Column="1" Content="Choose cookies.txt…" Style="{StaticResource SmallButton}"
+                                Margin="10,0,0,0" Click="CookiesFile_Click"/>
+                        <Button x:Name="BtnCookiesClear" Grid.Column="2" Content="Clear" Style="{StaticResource SmallButton}"
+                                Margin="6,0,0,0" Click="CookiesClear_Click"/>
+                    </Grid>
 
                     <TextBlock Text="DOWNLOAD ENGINE" Style="{StaticResource SectionLabel}" Margin="0,22,0,8"/>
                     <Grid>

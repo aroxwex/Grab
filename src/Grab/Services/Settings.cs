@@ -10,11 +10,21 @@ public class AppSettings
     public string AudioFormat { get; set; } = "mp3";   // mp3 | m4a | opus | wav
     public int AudioBitrate { get; set; } = 320;
     public string Cookies { get; set; } = "";          // "" | chrome | edge | firefox | brave
+    public string CookiesFile { get; set; } = "";      // optional cookies.txt (wins over the browser)
 }
 
 public static class SettingsStore
 {
     public static AppSettings Current { get; private set; } = new AppSettings();
+
+    /// <summary>"file:path", "browser:name" or "" - what yt-dlp should use for cookies.</summary>
+    public static string CookieSpec()
+    {
+        var c = Current;
+        if (!string.IsNullOrEmpty(c.CookiesFile) && File.Exists(c.CookiesFile)) return "file:" + c.CookiesFile;
+        if (!string.IsNullOrEmpty(c.Cookies)) return "browser:" + c.Cookies;
+        return "";
+    }
 
     public static void Load()
     {

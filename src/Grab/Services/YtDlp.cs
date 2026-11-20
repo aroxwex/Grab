@@ -24,28 +24,44 @@ public static class YtDlp
         return s > 0 ? s : Num(f, "filesize_approx");
     }
 
+    /// <summary>spec is "file:path", "browser:name" or "".</summary>
+    public static void AddCookies(List<string> args, string spec)
+    {
+        if (string.IsNullOrEmpty(spec)) return;
+        if (spec.StartsWith("file:")) { args.Add("--cookies"); args.Add(spec.Substring(5)); }
+        else if (spec.StartsWith("browser:")) { args.Add("--cookies-from-browser"); args.Add(spec.Substring(8)); }
+    }
+
+    public static bool IsCookieProblem(string err)
+    {
+        var low = (err ?? "").ToLowerInvariant();
+        return low.Contains("dpapi") || low.Contains("could not copy") || low.Contains("cookie database")
+            || low.Contains("failed to decrypt") || low.Contains("cookies-from-browser");
+    }
+
     public static string Friendly(string err)
     {
         var e = (err ?? "").Trim();
         var low = e.ToLowerInvariant();
         var table = new (string Key, string Msg)[]
         {
+            ("dpapi", "Couldn't read cookies from that browser. Chrome, Edge and Brave often block this. Use Firefox or a cookies.txt file in Settings, or turn cookies off."),
+            ("failed to decrypt", "Couldn't read cookies from that browser. Use Firefox or a cookies.txt file in Settings, or turn cookies off."),
+            ("could not copy", "Couldn't read browser cookies. Close the browser and try again, or turn cookies off in Settings."),
             ("unsupported url", "This link isn't supported."),
             ("video unavailable", "This video is unavailable (it may be deleted or blocked in your region)."),
             ("private video", "This video is private."),
-            ("sign in to confirm", "The site wants verification. Choose a browser in Settings > Browser cookies and try again."),
-            ("sign in", "This video needs a login. Choose a browser in Settings > Browser cookies."),
-            ("confirm your age", "Age verification is required. Choose a browser in Settings > Browser cookies."),
+            ("sign in to confirm", "The site wants verification. Choose a browser or a cookies file in Settings and try again."),
+            ("sign in", "This video needs a login. Choose a browser or a cookies file in Settings."),
+            ("confirm your age", "Age verification is required. Choose a browser or a cookies file in Settings."),
             ("ffmpeg", "ffmpeg not found. Put ffmpeg.exe and ffprobe.exe in the bin folder."),
             ("unable to download webpage", "Couldn't reach the site. Check your internet connection."),
             ("getaddrinfo", "You seem to be offline."),
             ("http error 429", "The site is temporarily rate-limiting you. Wait a bit and try again."),
-            ("could not copy", "Couldn't read browser cookies. Close the browser and try again."),
         };
         foreach (var (key, msg) in table)
             if (low.Contains(key)) return msg;
 
-        // strip the "ERROR: [site] id:" prefix
         var idx = e.IndexOf("ERROR:", StringComparison.OrdinalIgnoreCase);
         if (idx >= 0) e = e.Substring(idx + 6).Trim();
         if (e.StartsWith("[")) { var close = e.IndexOf(']'); if (close > 0) e = e.Substring(close + 1).Trim(); }
@@ -78,25 +94,95 @@ public static class YtDlp
         catch (Exception ex) { return ex.Message; }
     }
 
-    public static async Task<(VideoInfo Info, string Error)> GetInfoAsync(string url, string cookies)
+    // ---------------------------------------------------------------- search
+
+    /// <summary>Searches YouTube (top 10) without downloading anything.</summary>
+    public static async Task<(List<SearchResult> Items, string Error)> SearchAsync(string query)
     {
         var exe = Tools.Find("yt-dlp");
         if (exe == null) return (null, "yt-dlp not found. Put yt-dlp.exe in the bin folder.");
 
+        var args = new List<string> { "--flat-playlist", "-J", "--no-warnings", "--encoding", "utf-8", "ytsearch10:" + query };
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        (int Code, string Out, string Err) r;
+        try { r = await Proc.RunAsync(exe, args, cts.Token); }
+        catch (Exception ex) { return (null, ex.Message); }
+        if (cts.IsCancellationRequested) return (null, "The search timed out. Try again.");
+        if (r.Code != 0)
+        {
+            var errLines = r.Err.Split('\n').Where(l => l.Contains("ERROR")).ToList();
+            return (null, Friendly(errLines.Count > 0 ? errLines[errLines.Count - 1] : r.Err));
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(r.Out);
+            var items = new List<SearchResult>();
+            if (doc.RootElement.TryGetProperty("entries", out var entries) && entries.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var en in entries.EnumerateArray())
+                {
+                    var id = Str(en, "id");
+                    if (id == "") continue;
+                    var channel = Str(en, "channel");
+                    if (channel == "") channel = Str(en, "uploader");
+                    items.Add(new SearchResult
+                    {
+                        Id = id,
+                        Title = Str(en, "title"),
+                        Channel = channel,
+                        Duration = Num(en, "duration"),
+                        Url = "https://www.youtube.com/watch?v=" + id,
+                        Thumb = "https://i.ytimg.com/vi/" + id + "/mqdefault.jpg",
+                    });
+                }
+            }
+            return (items, "");
+        }
+        catch
+        {
+            return (null, "Couldn't read the search results.");
+        }
+    }
+
+    // ---------------------------------------------------------------- info
+
+    /// <summary>Fetches video info. If the cookies can't be read it silently retries without them.</summary>
+    public static async Task<(VideoInfo Info, string Error)> GetInfoAsync(string url, string cookieSpec)
+    {
+        var first = await GetInfoCoreAsync(url, cookieSpec);
+        if (first.Info == null && !string.IsNullOrEmpty(cookieSpec) && IsCookieProblem(first.Raw))
+        {
+            var second = await GetInfoCoreAsync(url, "");
+            if (second.Info != null)
+            {
+                second.Info.CookiesSkipped = true;
+                return (second.Info, "");
+            }
+            return (null, second.Error);
+        }
+        return (first.Info, first.Error);
+    }
+
+    static async Task<(VideoInfo Info, string Error, string Raw)> GetInfoCoreAsync(string url, string cookieSpec)
+    {
+        var exe = Tools.Find("yt-dlp");
+        if (exe == null) return (null, "yt-dlp not found. Put yt-dlp.exe in the bin folder.", "");
+
         var args = new List<string> { "-J", "--no-playlist", "--no-warnings", "--encoding", "utf-8" };
-        if (!string.IsNullOrEmpty(cookies)) { args.Add("--cookies-from-browser"); args.Add(cookies); }
+        AddCookies(args, cookieSpec);
         args.Add(url);
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(90));
         (int Code, string Out, string Err) r;
         try { r = await Proc.RunAsync(exe, args, cts.Token); }
-        catch (Exception ex) { return (null, ex.Message); }
-        if (cts.IsCancellationRequested) return (null, "Timed out. Try again.");
+        catch (Exception ex) { return (null, ex.Message, ex.Message); }
+        if (cts.IsCancellationRequested) return (null, "Timed out. Try again.", "");
 
         if (r.Code != 0)
         {
             var errLines = r.Err.Split('\n').Where(l => l.Contains("ERROR")).ToList();
-            return (null, Friendly(errLines.Count > 0 ? errLines[errLines.Count - 1] : r.Err));
+            return (null, Friendly(errLines.Count > 0 ? errLines[errLines.Count - 1] : r.Err), r.Err);
         }
 
         try
@@ -144,35 +230,38 @@ public static class YtDlp
             foreach (var h in heights.Keys.OrderByDescending(x => x))
                 info.Resolutions.Add(new ResOption { Height = h, Size = heights[h] });
 
-            return (info, "");
+            return (info, "", "");
         }
         catch
         {
-            return (null, "Couldn't read the video info.");
+            return (null, "Couldn't read the video info.", "");
         }
     }
 
-    /// <summary>Direct URL of a small, widely playable stream used for the in-app preview.</summary>
-    public static async Task<string> GetPreviewUrlAsync(string url, string cookies)
+    /// <summary>Direct URL of a widely playable stream (up to 720p) used for the in-app player.</summary>
+    public static async Task<string> GetPreviewUrlAsync(string url, string cookieSpec)
     {
         var exe = Tools.Find("yt-dlp");
         if (exe == null) return "";
-        var args = new List<string>
+        foreach (var spec in string.IsNullOrEmpty(cookieSpec) ? new[] { "" } : new[] { cookieSpec, "" })
         {
-            "-g", "--no-playlist", "--no-warnings",
-            "-f", "b[ext=mp4][height<=480]/b[height<=480]/w[ext=mp4]/w",
-        };
-        if (!string.IsNullOrEmpty(cookies)) { args.Add("--cookies-from-browser"); args.Add(cookies); }
-        args.Add(url);
-        try
-        {
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
-            var r = await Proc.RunAsync(exe, args, cts.Token);
-            if (r.Code != 0) return "";
-            foreach (var line in r.Out.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-                if (line.StartsWith("http")) return line;
+            var args = new List<string>
+            {
+                "-g", "--no-playlist", "--no-warnings",
+                "-f", "b[ext=mp4][height<=720]/b[height<=720]/b[ext=mp4]/w",
+            };
+            AddCookies(args, spec);
+            args.Add(url);
+            try
+            {
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+                var r = await Proc.RunAsync(exe, args, cts.Token);
+                if (r.Code != 0) continue;
+                foreach (var line in r.Out.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                    if (line.StartsWith("http")) return line;
+            }
+            catch { }
         }
-        catch { }
         return "";
     }
 
@@ -187,7 +276,7 @@ public static class YtDlp
             "-o", Path.Combine(tmpDir, "%(title).120B.%(ext)s"),
         };
         if (!string.IsNullOrEmpty(ffDir)) { a.Add("--ffmpeg-location"); a.Add(ffDir); }
-        if (!string.IsNullOrEmpty(r.Cookies)) { a.Add("--cookies-from-browser"); a.Add(r.Cookies); }
+        AddCookies(a, r.Cookies);
 
         if (r.Audio)
         {

@@ -26,6 +26,17 @@ public class VideoInfo
     public double Duration;
     public string Thumb = "";
     public List<ResOption> Resolutions = new List<ResOption>();
+    public bool CookiesSkipped;   // cookies couldn't be read, info was fetched without them
+}
+
+public class SearchResult
+{
+    public string Id = "";
+    public string Title = "";
+    public string Channel = "";
+    public double Duration;
+    public string Url = "";
+    public string Thumb = "";
 }
 
 public class DownloadRequest
@@ -75,4 +86,6 @@ public class JobResult
     public bool Cancelled;
     public string File = "";
     public string Error = "";
+    public string Note = "";
+    public bool CookieProblem;
 }

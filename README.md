@@ -4,15 +4,16 @@ A portable, minimal video and audio downloader for Windows, built with C# and WP
 Powered by **yt-dlp** and **ffmpeg**.
 
 ## What it does
-- **Link mode:** paste a link, preview the video inside the app, pick a resolution, format and save.
-- **File mode:** open or drop a video from your computer to trim, mute or convert it.
-- **Visual trimming:** watch the video, drag the start and end handles on the timeline (or press `[` and `]` at the playhead), then save only that part.
+- **One box for everything:** paste a link, type words to search YouTube (press Enter), or open / drop a video file. Grab figures out which one it is.
+- **Watch before you save:** the video plays inside the app (up to 720p) so you can find the exact part you want.
+- **Visual trimming:** drag the start and end handles on the timeline (or press `[` and `]` at the playhead), then save only that part.
 - **Video:** every resolution the video offers with an estimated size, as MP4 / MKV / WebM.
 - **Audio:** MP3 (128 / 192 / 320 kbps), M4A, Opus, WAV.
-- **Mute:** save the video without sound.
-- **Fast cut (File mode):** cut without re-encoding, instant but may start a moment early.
+- **Remove sound:** save the video without audio.
+- **Files from your computer:** trim, mute or convert them too. "Fast cut" cuts without re-encoding.
 - Progress, speed, time left, cancel, "Show in folder".
-- Settings: browser cookies (for bot / age checks) and a one-click yt-dlp update.
+- Settings: cookies (browser or cookies.txt, only needed when a site asks for a login) and a one-click yt-dlp update.
+  If browser cookies can't be read (Chrome / Edge / Brave often can't), Grab retries without them.
 
 Shortcuts: `Space` play/pause, `←` `→` seek 1 s (hold `Shift` for 5 s), `[` set start, `]` set end.
 
@@ -35,9 +36,9 @@ dotnet publish src/Grab/Grab.csproj -c Release -r win-x64 --self-contained true 
 ```
 Then put `yt-dlp.exe`, `ffmpeg.exe` and `ffprobe.exe` in `publish/bin/`.
 
-## Preview notes
-The in-app preview uses Windows' built-in media player. For formats it can't play (MKV, WebM, some codecs)
-Grab automatically makes a small MP4 copy for the preview; the export always uses the original.
+## Player notes
+The in-app player uses Windows' built-in media player. For formats it can't play (MKV, WebM, some codecs)
+Grab automatically makes a small MP4 copy to play; the export always uses the original quality.
 
 ## Note
 Only download content you have the right to download. Site terms of service and copyright rules are your responsibility.
