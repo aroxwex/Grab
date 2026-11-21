@@ -5,30 +5,35 @@ Powered by **yt-dlp** and **ffmpeg**.
 
 ## What it does
 - **One box for everything:** paste a link, type words to search YouTube (press Enter), or open / drop a video file. Grab figures out which one it is.
-- **Watch before you save:** the video plays inside the app (up to 720p) so you can find the exact part you want.
+- **Watch before you save:** a small 360p copy is loaded in the app's own player so you can find the exact part you want. You can turn this off in Settings and load it only when you need it.
 - **Visual trimming:** drag the start and end handles on the timeline (or press `[` and `]` at the playhead), then save only that part.
+- **Volume:** a slider and a number box from 0% to 200%. 0% removes the sound, above 100% boosts it (with a gentle limiter so it doesn't distort).
 - **Video:** every resolution the video offers with an estimated size, as MP4 / MKV / WebM.
 - **Audio:** MP3 (128 / 192 / 320 kbps), M4A, Opus, WAV.
-- **Remove sound:** save the video without audio.
-- **Files from your computer:** trim, mute or convert them too. "Fast cut" cuts without re-encoding.
+- **Full screen:** press `F` or double-click the video. `Esc` leaves it.
+- **Files from your computer:** trim or convert them too. "Fast cut" cuts without re-encoding.
 - Progress, speed, time left, cancel, "Show in folder".
-- Settings: cookies (browser or cookies.txt, only needed when a site asks for a login) and a one-click yt-dlp update.
-  If browser cookies can't be read (Chrome / Edge / Brave often can't), Grab retries without them.
+- Settings: player on/off, temporary file cleanup, cookies (browser or cookies.txt, only for videos that need a login),
+  one-click yt-dlp update and the last log. If browser cookies can't be read, Grab retries without them.
 
-Shortcuts: `Space` play/pause, `←` `→` seek 1 s (hold `Shift` for 5 s), `[` set start, `]` set end.
+Shortcuts: `Space` play/pause, `F` full screen, `←` `→` seek 1 s (hold `Shift` for 5 s), `[` set start, `]` set end.
 
 ## Get it (portable)
-1. On GitHub open **Actions > Build Grab > Run workflow**.
-2. Download the **Grab-portable** artifact, extract it anywhere and run `Grab.exe`.
+1. On GitHub open **Actions > Build Grab > Run workflow**, or push a tag like `v1.0.0` to get a release.
+2. Download **Grab-portable** (artifact or release zip) and extract it. Inside is one folder:
 
 ```
 Grab/
 ├─ Grab.exe
 ├─ bin/     yt-dlp.exe, ffmpeg.exe, ffprobe.exe
-└─ data/    settings (created on first launch)
+└─ data/    settings and the last log (created on first launch)
 ```
 No installer and no .NET install needed. Keep `data/` when updating.
 If downloads stop working because a site changed: Settings > Update yt-dlp.
+
+## Temporary files
+The player copy lives in `data/tmp` and is deleted when you load another video, when you close Grab and on the next start.
+There is only ever one at a time. You can also clear it by hand in Settings.
 
 ## Build locally
 ```

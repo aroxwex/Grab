@@ -13,8 +13,11 @@
     <SolidColorBrush x:Key="DimBrush" Color="#5A5A5A"/>
     <SolidColorBrush x:Key="LightBrush" Color="#EDEDED"/>
     <SolidColorBrush x:Key="DarkBrush" Color="#111111"/>
-    <SolidColorBrush x:Key="GreenBrush" Color="#4ADE80"/>
-    <SolidColorBrush x:Key="GreenSoftBrush" Color="#1F3A2A"/>
+    <SolidColorBrush x:Key="AccentBrush" Color="#3B82F6"/>
+    <SolidColorBrush x:Key="AccentLightBrush" Color="#7CB0FF"/>
+    <SolidColorBrush x:Key="AccentSoftBrush" Color="#1B2F57"/>
+    <SolidColorBrush x:Key="ChipBrush" Color="#222222"/>
+    <SolidColorBrush x:Key="ChipLineBrush" Color="#343434"/>
     <SolidColorBrush x:Key="DangerBrush" Color="#FF8A8A"/>
     <SolidColorBrush x:Key="SegSelectedBrush" Color="#2E2E2E"/>
     <SolidColorBrush x:Key="HoverBrush" Color="#242424"/>
@@ -77,8 +80,8 @@
     </Style>
 
     <Style x:Key="PrimaryButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-        <Setter Property="Background" Value="{StaticResource LightBrush}"/>
-        <Setter Property="Foreground" Value="{StaticResource DarkBrush}"/>
+        <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
+        <Setter Property="Foreground" Value="White"/>
         <Setter Property="BorderThickness" Value="0"/>
         <Setter Property="FontWeight" Value="SemiBold"/>
         <Setter Property="FontSize" Value="14"/>
@@ -99,8 +102,8 @@
     </Style>
 
     <Style x:Key="PillPrimary" TargetType="Button" BasedOn="{StaticResource PillButton}">
-        <Setter Property="Background" Value="{StaticResource LightBrush}"/>
-        <Setter Property="Foreground" Value="{StaticResource DarkBrush}"/>
+        <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
+        <Setter Property="Foreground" Value="White"/>
         <Setter Property="BorderThickness" Value="0"/>
         <Setter Property="FontWeight" Value="SemiBold"/>
     </Style>
@@ -152,10 +155,12 @@
         <Setter Property="Background" Value="{StaticResource InputBrush}"/>
         <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
         <Setter Property="CaretBrush" Value="{StaticResource TextBrush}"/>
-        <Setter Property="SelectionBrush" Value="#4A6A57"/>
+        <Setter Property="SelectionBrush" Value="#2B4C8C"/>
         <Setter Property="BorderBrush" Value="{StaticResource LineBrush}"/>
         <Setter Property="BorderThickness" Value="1"/>
-        <Setter Property="Padding" Value="10,7"/>
+        <Setter Property="Padding" Value="10,0"/>
+        <Setter Property="MinHeight" Value="32"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
         <Setter Property="FontSize" Value="13"/>
         <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
         <Setter Property="Template">
@@ -163,7 +168,7 @@
                 <ControlTemplate TargetType="TextBox">
                     <Border x:Name="Bd" Background="{TemplateBinding Background}" CornerRadius="9"
                             BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
-                        <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}"/>
+                        <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}" VerticalAlignment="Center"/>
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsKeyboardFocused" Value="True">
@@ -179,7 +184,7 @@
         <Setter Property="Background" Value="Transparent"/>
         <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
         <Setter Property="CaretBrush" Value="{StaticResource TextBrush}"/>
-        <Setter Property="SelectionBrush" Value="#4A6A57"/>
+        <Setter Property="SelectionBrush" Value="#2B4C8C"/>
         <Setter Property="BorderThickness" Value="0"/>
         <Setter Property="FontSize" Value="14"/>
         <Setter Property="VerticalContentAlignment" Value="Center"/>
@@ -239,19 +244,17 @@
             <Setter.Value>
                 <ControlTemplate TargetType="RadioButton">
                     <Border x:Name="Bd" Width="84" Padding="0,9" CornerRadius="11"
-                            BorderThickness="1" BorderBrush="{StaticResource LineBrush}"
-                            Background="{StaticResource Panel2Brush}"
-                            TextElement.Foreground="{StaticResource TextBrush}">
+                            BorderThickness="1" BorderBrush="{StaticResource ChipLineBrush}"
+                            Background="{StaticResource ChipBrush}">
                         <ContentPresenter HorizontalAlignment="Center"/>
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource DimBrush}"/>
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource MutedBrush}"/>
                         </Trigger>
                         <Trigger Property="IsChecked" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource LightBrush}"/>
-                            <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource LightBrush}"/>
-                            <Setter TargetName="Bd" Property="TextElement.Foreground" Value="{StaticResource DarkBrush}"/>
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource AccentBrush}"/>
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -274,9 +277,9 @@
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsChecked" Value="True">
-                            <Setter TargetName="Track" Property="Background" Value="{StaticResource GreenBrush}"/>
-                            <Setter TargetName="Track" Property="BorderBrush" Value="{StaticResource GreenBrush}"/>
-                            <Setter TargetName="Thumb" Property="Fill" Value="{StaticResource DarkBrush}"/>
+                            <Setter TargetName="Track" Property="Background" Value="{StaticResource AccentBrush}"/>
+                            <Setter TargetName="Track" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                            <Setter TargetName="Thumb" Property="Fill" Value="White"/>
                             <Setter TargetName="Thumb" Property="HorizontalAlignment" Value="Right"/>
                             <Setter TargetName="Thumb" Property="Margin" Value="0,0,2,0"/>
                         </Trigger>
@@ -284,6 +287,68 @@
                             <Setter TargetName="Track" Property="Opacity" Value="0.4"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Slider (volume) -->
+    <Style x:Key="SliderThumb" TargetType="Thumb">
+        <Setter Property="Width" Value="18"/>
+        <Setter Property="Height" Value="18"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Thumb">
+                    <Ellipse Fill="White" Stroke="{StaticResource AccentBrush}" StrokeThickness="3"/>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="SliderFillButton" TargetType="RepeatButton">
+        <Setter Property="Focusable" Value="False"/>
+        <Setter Property="IsTabStop" Value="False"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="RepeatButton">
+                    <Border Height="6" CornerRadius="3,0,0,3" Background="{StaticResource AccentBrush}" VerticalAlignment="Center"/>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="SliderRestButton" TargetType="RepeatButton">
+        <Setter Property="Focusable" Value="False"/>
+        <Setter Property="IsTabStop" Value="False"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="RepeatButton">
+                    <Border Background="Transparent"/>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="GrabSlider" TargetType="Slider">
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Slider">
+                    <Grid Height="26" Background="Transparent">
+                        <Border Height="6" CornerRadius="3" Background="#2E2E2E" VerticalAlignment="Center"/>
+                        <Track x:Name="PART_Track">
+                            <Track.DecreaseRepeatButton>
+                                <RepeatButton Style="{StaticResource SliderFillButton}" Command="Slider.DecreaseLarge"/>
+                            </Track.DecreaseRepeatButton>
+                            <Track.Thumb>
+                                <Thumb Style="{StaticResource SliderThumb}"/>
+                            </Track.Thumb>
+                            <Track.IncreaseRepeatButton>
+                                <RepeatButton Style="{StaticResource SliderRestButton}" Command="Slider.IncreaseLarge"/>
+                            </Track.IncreaseRepeatButton>
+                        </Track>
+                    </Grid>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>

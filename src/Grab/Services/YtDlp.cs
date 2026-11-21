@@ -260,7 +260,7 @@ public static class YtDlp
         else
         {
             var h = r.Height;
-            var sel = r.Mute
+            var sel = r.Silent
                 ? "bv*[height<=" + h + "]/b[height<=" + h + "]"
                 : "bv*[height<=" + h + "]+ba/b[height<=" + h + "]";
             a.AddRange(new[] { "-f", sel, "--merge-output-format", r.VideoFormat });

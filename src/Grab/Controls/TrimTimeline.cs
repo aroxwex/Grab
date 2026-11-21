@@ -20,7 +20,7 @@ public class TrimTimeline : FrameworkElement
     static readonly Brush FillBrush = Make("#3A3A3A");
     static readonly Brush HandleBrush = Make("#EDEDED");
     static readonly Brush GripBrush = Make("#111111");
-    static readonly Brush PlayheadBrush = Make("#4ADE80");
+    static readonly Brush PlayheadBrush = Make("#7CB0FF");
     static readonly Brush LabelBrush = Make("#111111");
 
     static Brush Make(string hex)

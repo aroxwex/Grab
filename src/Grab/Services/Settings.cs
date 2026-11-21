@@ -10,6 +10,7 @@ public class AppSettings
     public string AudioFormat { get; set; } = "mp3";   // mp3 | m4a | opus | wav
     public int AudioBitrate { get; set; } = 320;
     public string Cookies { get; set; } = "";          // "" | chrome | edge | firefox | brave
+    public bool AutoPreview { get; set; } = true;      // load the small player copy automatically
     public string CookiesFile { get; set; } = "";      // optional cookies.txt (wins over the browser)
 }
 

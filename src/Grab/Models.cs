@@ -50,7 +50,9 @@ public class DownloadRequest
     public bool Trim;
     public double TrimStart;
     public double TrimEnd;       // 0 = until the end
-    public bool Mute;
+    public double Gain = 1.0;                // 1.0 = original volume, 0 = silent, 2.0 = double
+    public bool Silent => !Audio && Gain <= 0.001;
+    public bool NeedsGain => !Silent && Math.Abs(Gain - 1.0) > 0.01;
     public string OutDir = "";
     public string Cookies = "";
     public double Duration;
@@ -66,7 +68,9 @@ public class LocalRequest
     public bool Trim;
     public double TrimStart;
     public double TrimEnd;       // 0 = until the end
-    public bool Mute;
+    public double Gain = 1.0;                // 1.0 = original volume, 0 = silent, 2.0 = double
+    public bool Silent => !Audio && Gain <= 0.001;
+    public bool NeedsGain => !Silent && Math.Abs(Gain - 1.0) > 0.01;
     public bool FastCut;
     public string OutDir = "";
     public double Duration;

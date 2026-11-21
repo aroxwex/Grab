@@ -38,11 +38,21 @@ public partial class MainWindow : Window
     bool _suppress;          // true while we set the text box from code
     bool _cookiesBroken;     // cookies failed once, so skip them from now on
     double? _progress;
+    bool _full;
+    bool _volSync;
+    WindowState _prevState;
+    WindowStyle _prevStyle;
+    ResizeMode _prevResize;
+    string _pendingUrl = "";
+    string _pendingSpec = "";
+    DateTime _jobStart;
+    string _progBase = "";
 
     JobBase _job;
     CancellationTokenSource _proxyCts;
 
     readonly DispatcherTimer _tick = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(80) };
+    readonly DispatcherTimer _elapsed = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
     readonly DispatcherTimer _debounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(550) };
 
     public MainWindow()
@@ -55,6 +65,8 @@ public partial class MainWindow : Window
         {
             _job?.Cancel();
             _proxyCts?.Cancel();
+            try { Player.Close(); } catch { }
+            TempFiles.CleanPreviews();
         };
 
         TrimBar.SeekRequested += SeekTo;
@@ -68,6 +80,7 @@ public partial class MainWindow : Window
 
         _tick.Tick += Tick;
         _tick.Start();
+        _elapsed.Tick += (s, e) => UpdateElapsed();
         _debounce.Tick += async (s, e) =>
         {
             _debounce.Stop();
@@ -110,6 +123,8 @@ public partial class MainWindow : Window
         foreach (var rb in new[] { RbCkNone, RbCkChrome, RbCkEdge, RbCkFirefox, RbCkBrave }) rb.IsChecked = (string)rb.Tag == c.Cookies;
         DirText.Text = c.Dir;
         RefreshCookiesFileText();
+        AutoPreviewSwitch.IsChecked = c.AutoPreview;
+        RefreshTempText();
     }
 
     // ------------------------------------------------------------------ state
@@ -127,7 +142,6 @@ public partial class MainWindow : Window
         VideoFormatSection.Visibility = IsAudio ? Visibility.Collapsed : Visibility.Visible;
         AudioFormatSection.Visibility = IsAudio ? Visibility.Visible : Visibility.Collapsed;
         BitrateSection.Visibility = IsAudio && SettingsStore.Current.AudioFormat == "mp3" ? Visibility.Visible : Visibility.Collapsed;
-        MuteRow.Visibility = IsAudio ? Visibility.Collapsed : Visibility.Visible;
         FastRow.Visibility = !link && !IsAudio && hasMedia ? Visibility.Visible : Visibility.Collapsed;
         BtnBack.Visibility = _lastResults != null && link && _info != null ? Visibility.Visible : Visibility.Collapsed;
 
@@ -146,12 +160,16 @@ public partial class MainWindow : Window
         Omnibox.IsEnabled = !busy;
         if (busy)
         {
+            _jobStart = DateTime.Now;
+            _progBase = "";
+            _elapsed.Start();
             _progress = null;
             StopPulse();
             ProgFill.Width = 0;
             ProgText.Text = "Starting…";
             ProgInfo.Text = "";
         }
+        if (!busy) _elapsed.Stop();
         UpdateState();
     }
 
@@ -194,6 +212,9 @@ public partial class MainWindow : Window
 
         StopPlayback();
         try { Player.Source = null; } catch { }
+        try { Player.Close(); } catch { }
+        TempFiles.CleanPreviews();
+        BtnLoadPlayer.Visibility = Visibility.Collapsed;
 
         _info = null;
         _localPath = "";
@@ -509,10 +530,29 @@ public partial class MainWindow : Window
         }
         UpdateState();
 
+        _pendingUrl = url;
+        _pendingSpec = spec;
+        var auto = SettingsStore.Current.AutoPreview && (_duration <= 0 || _duration <= 7200);
+        if (auto)
+        {
+            await StartPreviewAsync(token);
+        }
+        else
+        {
+            BtnLoadPlayer.Visibility = Visibility.Visible;
+            SetPreviewStatus(SettingsStore.Current.AutoPreview
+                ? "This video is long, so the player isn't loaded automatically."
+                : "The player is off. Load it to watch and trim visually.");
+        }
+    }
+
+    async Task StartPreviewAsync(int token)
+    {
+        BtnLoadPlayer.Visibility = Visibility.Collapsed;
         SetPreviewStatus("Preparing the player…");
         _proxyCts = new CancellationTokenSource();
         var cts = _proxyCts;
-        var file = await PreviewMaker.MakeAsync(url, spec, fraction =>
+        var file = await PreviewMaker.MakeAsync(_pendingUrl, _pendingSpec, fraction =>
         {
             if (token == _fetchToken)
                 SetPreviewStatus(fraction.HasValue ? "Preparing the player…  " + (int)(fraction.Value * 100) + "%" : "Preparing the player…");
@@ -521,9 +561,16 @@ public partial class MainWindow : Window
         if (string.IsNullOrEmpty(file))
         {
             SetPreviewStatus("Couldn't load the player. You can still type the start and end times.");
+            BtnLoadPlayer.Visibility = Visibility.Visible;
             return;
         }
         LoadPreview(file);
+    }
+
+    async void LoadPlayer_Click(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrEmpty(_pendingUrl)) return;
+        await StartPreviewAsync(_fetchToken);
     }
 
     void BuildResChips(List<ResOption> list)
@@ -546,13 +593,14 @@ public partial class MainWindow : Window
                 Text = o.Label,
                 FontSize = 14,
                 FontWeight = FontWeights.SemiBold,
+                Foreground = (Brush)FindResource("TextBrush"),
                 HorizontalAlignment = HorizontalAlignment.Center,
             });
             content.Children.Add(new TextBlock
             {
                 Text = o.Size > 0 ? "~" + Fmt.Size(o.Size) : " ",
                 FontSize = 11,
-                Opacity = 0.65,
+                Foreground = (Brush)FindResource("MutedBrush"),
                 Margin = new Thickness(0, 1, 0, 0),
                 HorizontalAlignment = HorizontalAlignment.Center,
             });
@@ -564,10 +612,22 @@ public partial class MainWindow : Window
                 Tag = o.Height,
                 IsChecked = first,
             };
-            rb.Click += (s, e) => _height = (int)((RadioButton)s).Tag;
+            rb.Click += (s, e) => { _height = (int)((RadioButton)s).Tag; RefreshChipColors(); };
             ResPanel.Children.Add(rb);
             if (first) _height = o.Height;
             first = false;
+        }
+        RefreshChipColors();
+    }
+
+    /// <summary>Selected chip is blue, so its small size text turns light.</summary>
+    void RefreshChipColors()
+    {
+        var light = new SolidColorBrush(Color.FromArgb(0xCC, 0xFF, 0xFF, 0xFF));
+        foreach (var child in ResPanel.Children)
+        {
+            if (child is RadioButton rb && rb.Content is StackPanel sp && sp.Children.Count > 1 && sp.Children[1] is TextBlock sub)
+                sub.Foreground = rb.IsChecked == true ? light : (Brush)FindResource("MutedBrush");
         }
     }
 
@@ -661,6 +721,7 @@ public partial class MainWindow : Window
         Player.Pause();
         Player.Position = TimeSpan.Zero;
         Player.IsMuted = _previewMuted;
+        Player.Volume = Math.Min(1.0, VolSlider.Value / 100.0);
 
         if (Player.NaturalDuration.HasTimeSpan)
         {
@@ -878,10 +939,20 @@ public partial class MainWindow : Window
             if (e.Key == Key.Escape) { SettingsOverlay.Visibility = Visibility.Collapsed; e.Handled = true; }
             return;
         }
+        if (_full && e.Key == Key.Escape)
+        {
+            SetFullscreen(false);
+            e.Handled = true;
+            return;
+        }
         if (Keyboard.FocusedElement is TextBox) return;
 
         switch (e.Key)
         {
+            case Key.F:
+                SetFullscreen(!_full);
+                e.Handled = true;
+                break;
             case Key.Space:
                 TogglePlay();
                 e.Handled = true;
@@ -944,6 +1015,101 @@ public partial class MainWindow : Window
         }
     }
 
+    // ------------------------------------------------------------------ volume
+
+    void VolSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (!_ready || _volSync) return;
+        var v = (int)Math.Round(e.NewValue);
+        _volSync = true;
+        VolBox.Text = v.ToString();
+        _volSync = false;
+        ApplyVolume(v);
+    }
+
+    void ApplyVolume(int percent)
+    {
+        try { Player.Volume = Math.Min(1.0, percent / 100.0); } catch { }
+        VolHint.Text = percent == 0
+            ? "The sound will be removed."
+            : percent == 100
+                ? "100% is the original volume. 0% removes the sound."
+                : percent > 100
+                    ? percent + "% is louder than the original. The player can only preview up to 100%."
+                    : percent + "% is quieter than the original.";
+    }
+
+    void VolBox_Commit(object sender, RoutedEventArgs e)
+    {
+        if (!_ready) return;
+        if (!int.TryParse(VolBox.Text.Trim().TrimEnd('%'), out var v)) v = (int)Math.Round(VolSlider.Value);
+        v = Math.Max(0, Math.Min(200, v));
+        _volSync = true;
+        VolSlider.Value = v;
+        VolBox.Text = v.ToString();
+        _volSync = false;
+        ApplyVolume(v);
+    }
+
+    void VolBox_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+        VolBox_Commit(sender, e);
+        Keyboard.ClearFocus();
+        e.Handled = true;
+    }
+
+    void VolReset_Click(object sender, RoutedEventArgs e)
+    {
+        VolSlider.Value = 100;
+    }
+
+    // ------------------------------------------------------------------ full screen
+
+    void Fullscreen_Click(object sender, RoutedEventArgs e) => SetFullscreen(!_full);
+
+    void Preview_Down(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ClickCount == 2 && _mediaReady) SetFullscreen(!_full);
+    }
+
+    void SetFullscreen(bool on)
+    {
+        if (on == _full) return;
+        if (on && !_mediaReady && _info == null && string.IsNullOrEmpty(_localPath)) return;
+        _full = on;
+
+        if (on)
+        {
+            _prevState = WindowState;
+            _prevStyle = WindowStyle;
+            _prevResize = ResizeMode;
+            WindowStyle = WindowStyle.None;
+            ResizeMode = ResizeMode.NoResize;
+            WindowState = WindowState.Normal;
+            WindowState = WindowState.Maximized;
+            Topmost = true;
+        }
+        else
+        {
+            Topmost = false;
+            WindowStyle = _prevStyle;
+            ResizeMode = _prevResize;
+            WindowState = _prevState;
+        }
+
+        var show = on ? Visibility.Collapsed : Visibility.Visible;
+        TopBar.Visibility = show;
+        FooterBar.Visibility = show;
+        RightPanel.Visibility = show;
+        ColSpacer.Width = new GridLength(on ? 0 : 16);
+        ColRight.Width = new GridLength(on ? 0 : 360);
+        MainGrid.Margin = on ? new Thickness(0) : new Thickness(20, 0, 20, 0);
+        InfoPanel.Visibility = !on && (_info != null || !string.IsNullOrEmpty(_localPath)) ? Visibility.Visible : Visibility.Collapsed;
+        BtnFullscreen.Content = on ? "\uE73F" : "\uE740";
+        BtnFullscreen.ToolTip = on ? "Exit full screen (Esc)" : "Full screen (F)";
+    }
+
     // ------------------------------------------------------------------ run
 
     async void Go_Click(object sender, RoutedEventArgs e)
@@ -957,7 +1123,7 @@ public partial class MainWindow : Window
         var end = trim ? _trimEnd : 0;
         if (trim && _duration > 0 && end >= _duration - 0.05) end = 0;       // until the very end
         if (trim && start <= 0.05 && end == 0) trim = false;                  // whole video, nothing to cut
-        var mute = !IsAudio && MuteSwitch.IsChecked == true;
+        var gain = VolSlider.Value / 100.0;
 
         SetBusy(true);
         JobResult result;
@@ -979,7 +1145,7 @@ public partial class MainWindow : Window
                     Trim = trim,
                     TrimStart = start,
                     TrimEnd = end,
-                    Mute = mute,
+                    Gain = gain,
                     OutDir = cfg.Dir,
                     Cookies = CookieSpec,
                     Duration = _duration,
@@ -1000,7 +1166,7 @@ public partial class MainWindow : Window
                     Trim = trim,
                     TrimStart = start,
                     TrimEnd = end,
-                    Mute = mute,
+                    Gain = gain,
                     FastCut = FastSwitch.IsChecked == true,
                     OutDir = cfg.Dir,
                     Duration = _duration,
@@ -1038,8 +1204,17 @@ public partial class MainWindow : Window
     {
         _progress = p.Fraction;
         ProgText.Text = p.Fraction.HasValue ? p.Text + "  " + (int)(p.Fraction.Value * 100) + "%" : p.Text;
-        ProgInfo.Text = string.Join("   ·   ", new[] { p.Speed, p.Eta }.Where(x => !string.IsNullOrEmpty(x)));
+        _progBase = string.Join("   ·   ", new[] { p.Speed, p.Eta }.Where(x => !string.IsNullOrEmpty(x)));
+        UpdateElapsed();
         ApplyProgress();
+    }
+
+    void UpdateElapsed()
+    {
+        if (!_busy) return;
+        var spent = DateTime.Now - _jobStart;
+        var elapsed = Fmt.Time(spent.TotalSeconds) + " elapsed";
+        ProgInfo.Text = string.IsNullOrEmpty(_progBase) ? elapsed : _progBase + "   ·   " + elapsed;
     }
 
     void ApplyProgress()
@@ -1109,13 +1284,45 @@ public partial class MainWindow : Window
 
     // ------------------------------------------------------------------ settings
 
-    void Settings_Click(object sender, RoutedEventArgs e) => SettingsOverlay.Visibility = Visibility.Visible;
+    void Settings_Click(object sender, RoutedEventArgs e)
+    {
+        RefreshTempText();
+        SettingsOverlay.Visibility = Visibility.Visible;
+    }
 
     void SettingsClose_Click(object sender, RoutedEventArgs e) => SettingsOverlay.Visibility = Visibility.Collapsed;
 
     void SettingsBackdrop_Click(object sender, MouseButtonEventArgs e) => SettingsOverlay.Visibility = Visibility.Collapsed;
 
     void SettingsCard_Click(object sender, MouseButtonEventArgs e) => e.Handled = true;
+
+    void AutoPreview_Click(object sender, RoutedEventArgs e)
+    {
+        SettingsStore.Current.AutoPreview = AutoPreviewSwitch.IsChecked == true;
+        SettingsStore.Save();
+    }
+
+    void RefreshTempText()
+    {
+        var bytes = TempFiles.PreviewBytes();
+        TempText.Text = bytes <= 0 ? "No temporary player files" : "Temporary player files: " + Fmt.Size(bytes);
+    }
+
+    void ClearTemp_Click(object sender, RoutedEventArgs e)
+    {
+        TempFiles.CleanPreviews();
+        RefreshTempText();
+    }
+
+    void OpenLog_Click(object sender, RoutedEventArgs e)
+    {
+        var download = AppLog.PathFor("last-download.log");
+        var export = AppLog.PathFor("last-export.log");
+        var newest = File.Exists(download) && (!File.Exists(export) || File.GetLastWriteTime(download) >= File.GetLastWriteTime(export))
+            ? download : export;
+        if (File.Exists(newest)) Win.Open(newest);
+        else ShowMessage("There's no log yet. Run a download or export first.", false);
+    }
 
     void Cookies_Click(object sender, RoutedEventArgs e)
     {
