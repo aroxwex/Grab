@@ -509,15 +509,21 @@ public partial class MainWindow : Window
         }
         UpdateState();
 
-        SetPreviewStatus("Loading video…");
-        var stream = await YtDlp.GetPreviewUrlAsync(url, spec);
-        if (token != _fetchToken) return;
-        if (string.IsNullOrEmpty(stream))
+        SetPreviewStatus("Preparing the player…");
+        _proxyCts = new CancellationTokenSource();
+        var cts = _proxyCts;
+        var file = await PreviewMaker.MakeAsync(url, spec, fraction =>
         {
-            SetPreviewStatus("Can't play this one here. You can still type the start and end times.");
+            if (token == _fetchToken)
+                SetPreviewStatus(fraction.HasValue ? "Preparing the player…  " + (int)(fraction.Value * 100) + "%" : "Preparing the player…");
+        }, cts.Token);
+        if (token != _fetchToken || cts.IsCancellationRequested) return;
+        if (string.IsNullOrEmpty(file))
+        {
+            SetPreviewStatus("Couldn't load the player. You can still type the start and end times.");
             return;
         }
-        LoadPreview(stream);
+        LoadPreview(file);
     }
 
     void BuildResChips(List<ResOption> list)

@@ -160,8 +160,8 @@
                         </Button>
                     </Grid>
 
-                    <Border x:Name="TimelineCard" Grid.Row="2" Style="{StaticResource Card}" Margin="0,12,0,0"
-                            Padding="14,12,14,12" Visibility="Collapsed">
+                    <Border x:Name="TimelineCard" Grid.Row="2" Style="{StaticResource Card}" Margin="0,10,0,0"
+                            Padding="12,8,12,8" CornerRadius="12" Visibility="Collapsed">
                         <StackPanel>
                             <Grid>
                                 <Grid.ColumnDefinitions>
@@ -170,26 +170,30 @@
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
-                                <Button x:Name="BtnPlay" Style="{StaticResource PlayButton}" Content="&#xE768;" Click="Play_Click"/>
-                                <TextBlock x:Name="TimeText" Grid.Column="1" Text="0:00 / 0:00" Margin="12,0,0,0"
+                                <Button x:Name="BtnPlay" Style="{StaticResource PlayButton}" Content="&#xE768;"
+                                        Width="30" Height="30" FontSize="11" Click="Play_Click"/>
+                                <TextBlock x:Name="TimeText" Grid.Column="1" Text="0:00 / 0:00" Margin="10,0,0,0" FontSize="12.5"
                                            VerticalAlignment="Center" Typography.NumeralAlignment="Tabular"/>
                                 <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
                                     <Button x:Name="BtnPreviewMute" Content="&#xE767;" Style="{StaticResource IconButton}"
-                                            ToolTip="Mute the preview" Click="PreviewMute_Click" Margin="0,0,12,0"/>
-                                    <StackPanel x:Name="MuteRow" Orientation="Horizontal" Margin="0,0,20,0"
+                                            Width="28" Height="28" FontSize="13"
+                                            ToolTip="Mute the player" Click="PreviewMute_Click" Margin="0,0,10,0"/>
+                                    <StackPanel x:Name="MuteRow" Orientation="Horizontal" Margin="0,0,16,0"
                                                 ToolTip="Save the video without sound">
-                                        <TextBlock Text="Remove sound" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                        <TextBlock Text="Remove sound" FontSize="12.5" VerticalAlignment="Center" Margin="0,0,8,0"/>
                                         <CheckBox x:Name="MuteSwitch" Style="{StaticResource Switch}"/>
                                     </StackPanel>
-                                    <TextBlock Text="Trim" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                    <TextBlock Text="Trim" FontSize="12.5" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,8,0"/>
                                     <CheckBox x:Name="TrimSwitch" Style="{StaticResource Switch}" Click="TrimSwitch_Click"/>
                                 </StackPanel>
                             </Grid>
 
-                            <c:TrimTimeline x:Name="TrimBar" Height="54" Margin="0,10,0,0"/>
+                            <c:TrimTimeline x:Name="TrimBar" Height="36" Margin="0,4,0,0"/>
 
-                            <Grid x:Name="TrimFields" Margin="0,10,0,0" Visibility="Collapsed">
+                            <Grid x:Name="TrimFields" Margin="0,6,0,0" Visibility="Collapsed">
                                 <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="Auto"/>
@@ -197,24 +201,20 @@
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0">
-                                    <TextBlock Text="START" Style="{StaticResource SectionLabel}" Margin="0,0,0,4"/>
-                                    <TextBox x:Name="StartBox" Width="92" LostFocus="TrimBox_Commit" KeyDown="TrimBox_KeyDown"/>
-                                </StackPanel>
-                                <Button x:Name="BtnSetStart" Grid.Column="1" Content="Set here" Style="{StaticResource SmallButton}"
-                                        VerticalAlignment="Bottom" Margin="6,0,18,2" ToolTip="Use the playhead position  ( [ )"
-                                        Click="SetStart_Click"/>
-                                <StackPanel Grid.Column="2">
-                                    <TextBlock Text="END" Style="{StaticResource SectionLabel}" Margin="0,0,0,4"/>
-                                    <TextBox x:Name="EndBox" Width="92" LostFocus="TrimBox_Commit" KeyDown="TrimBox_KeyDown"/>
-                                </StackPanel>
-                                <Button x:Name="BtnSetEnd" Grid.Column="3" Content="Set here" Style="{StaticResource SmallButton}"
-                                        VerticalAlignment="Bottom" Margin="6,0,0,2" ToolTip="Use the playhead position  ( ] )"
-                                        Click="SetEnd_Click"/>
-                                <StackPanel Grid.Column="5" HorizontalAlignment="Right">
-                                    <TextBlock Text="LENGTH" Style="{StaticResource SectionLabel}" Margin="0,0,0,4" HorizontalAlignment="Right"/>
-                                    <TextBlock x:Name="LengthText" FontSize="16" FontWeight="SemiBold" HorizontalAlignment="Right"
-                                               Foreground="{StaticResource GreenBrush}" Margin="0,6,0,0"/>
+                                <TextBlock Text="Start" Style="{StaticResource Muted}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                <TextBox x:Name="StartBox" Grid.Column="1" Width="82" Height="30" Padding="8,4" FontSize="12.5"
+                                         LostFocus="TrimBox_Commit" KeyDown="TrimBox_KeyDown"/>
+                                <Button x:Name="BtnSetStart" Grid.Column="2" Content="Set here" Style="{StaticResource SmallButton}"
+                                        Margin="6,0,18,0" ToolTip="Use the playhead position  ( [ )" Click="SetStart_Click"/>
+                                <TextBlock Grid.Column="3" Text="End" Style="{StaticResource Muted}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                <TextBox x:Name="EndBox" Grid.Column="4" Width="82" Height="30" Padding="8,4" FontSize="12.5"
+                                         LostFocus="TrimBox_Commit" KeyDown="TrimBox_KeyDown"/>
+                                <Button x:Name="BtnSetEnd" Grid.Column="5" Content="Set here" Style="{StaticResource SmallButton}"
+                                        Margin="6,0,0,0" ToolTip="Use the playhead position  ( ] )" Click="SetEnd_Click"/>
+                                <StackPanel Grid.Column="7" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <TextBlock Text="Length" Style="{StaticResource Muted}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                    <TextBlock x:Name="LengthText" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center"
+                                               Foreground="{StaticResource GreenBrush}"/>
                                 </StackPanel>
                             </Grid>
                         </StackPanel>

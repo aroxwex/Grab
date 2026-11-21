@@ -39,7 +39,7 @@ public abstract class JobBase
         return name;
     }
 
-    protected static double ParseNum(string s)
+    public static double ParseNum(string s)
     {
         return double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var v) ? v : -1;
     }
@@ -299,5 +299,79 @@ public class LocalExporter : JobBase
             return r.Code == 0 && File.Exists(output) ? output : "";
         }
         catch { return ""; }
+    }
+}
+
+/// <summary>Downloads a small (about 360p) copy of a video so the in-app player can play and scrub it reliably.</summary>
+public static class PreviewMaker
+{
+    public static async Task<string> MakeAsync(string url, string cookieSpec, Action<double?> report, CancellationToken ct)
+    {
+        var yt = Tools.Find("yt-dlp");
+        if (yt == null) return "";
+        var ff = Tools.Find("ffmpeg");
+
+        foreach (var spec in string.IsNullOrEmpty(cookieSpec) ? new[] { "" } : new[] { cookieSpec, "" })
+        {
+            var dir = Path.Combine(AppPaths.TempDir, "preview-" + DateTime.Now.Ticks);
+            try
+            {
+                Directory.CreateDirectory(dir);
+                var args = new List<string>
+                {
+                    "--no-playlist", "--no-warnings", "--newline", "--encoding", "utf-8",
+                    "--progress-template",
+                    "download:@@%(progress.downloaded_bytes)s|%(progress.total_bytes)s|%(progress.total_bytes_estimate)s|%(info.format_id)s",
+                    "--print-to-file", "after_move:filepath", Path.Combine(dir, "_path.txt"),
+                    "-o", Path.Combine(dir, "preview.%(ext)s"),
+                    "-f", "bv*[height<=360][vcodec^=avc1]+ba[ext=m4a]/bv*[height<=480][vcodec^=avc1]+ba[ext=m4a]/b[height<=480]/bv*[height<=480]+ba/w",
+                    "--merge-output-format", "mp4",
+                };
+                if (ff != null) { args.Add("--ffmpeg-location"); args.Add(Path.GetDirectoryName(ff)); }
+                YtDlp.AddCookies(args, spec);
+                args.Add(url);
+
+                using var p = Process.Start(Proc.Info(yt, args));
+                using var reg = ct.Register(() => Proc.Kill(p));
+                var errTask = p.StandardError.ReadToEndAsync();
+
+                var stage = 0;
+                string lastFormat = null;
+                string line;
+                while ((line = await p.StandardOutput.ReadLineAsync()) != null)
+                {
+                    if (!line.StartsWith("@@")) continue;
+                    var f = line.Substring(2).Trim().Split('|');
+                    if (f.Length < 4) continue;
+                    if (f[3] != lastFormat) { stage++; lastFormat = f[3]; }
+                    var done = JobBase.ParseNum(f[0]);
+                    var total = JobBase.ParseNum(f[1]);
+                    if (total <= 0) total = JobBase.ParseNum(f[2]);
+                    if (total > 0 && done >= 0)
+                        report?.Invoke(Math.Min(((Math.Min(stage, 2) - 1) + Math.Min(done / total, 1.0)) / 2.0, 0.99));
+                }
+                await p.WaitForExitAsync();
+                await errTask;
+
+                if (ct.IsCancellationRequested) return "";
+                if (p.ExitCode == 0)
+                {
+                    var pathFile = Path.Combine(dir, "_path.txt");
+                    if (File.Exists(pathFile))
+                    {
+                        var last = File.ReadAllLines(pathFile).LastOrDefault(l => !string.IsNullOrWhiteSpace(l));
+                        if (last != null && File.Exists(last.Trim())) return last.Trim();
+                    }
+                    var any = new DirectoryInfo(dir).GetFiles("preview.*").OrderByDescending(x => x.Length).FirstOrDefault();
+                    if (any != null) return any.FullName;
+                }
+            }
+            catch
+            {
+                // try the next option
+            }
+            try { Directory.Delete(dir, true); } catch { }
+        }
+        return "";
     }
 }

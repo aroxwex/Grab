@@ -238,33 +238,6 @@ public static class YtDlp
         }
     }
 
-    /// <summary>Direct URL of a widely playable stream (up to 720p) used for the in-app player.</summary>
-    public static async Task<string> GetPreviewUrlAsync(string url, string cookieSpec)
-    {
-        var exe = Tools.Find("yt-dlp");
-        if (exe == null) return "";
-        foreach (var spec in string.IsNullOrEmpty(cookieSpec) ? new[] { "" } : new[] { cookieSpec, "" })
-        {
-            var args = new List<string>
-            {
-                "-g", "--no-playlist", "--no-warnings",
-                "-f", "b[ext=mp4][height<=720]/b[height<=720]/b[ext=mp4]/w",
-            };
-            AddCookies(args, spec);
-            args.Add(url);
-            try
-            {
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
-                var r = await Proc.RunAsync(exe, args, cts.Token);
-                if (r.Code != 0) continue;
-                foreach (var line in r.Out.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-                    if (line.StartsWith("http")) return line;
-            }
-            catch { }
-        }
-        return "";
-    }
-
     public static List<string> BuildArgs(DownloadRequest r, string tmpDir, string ffDir)
     {
         var a = new List<string>
