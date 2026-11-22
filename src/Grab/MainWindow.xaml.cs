@@ -39,6 +39,8 @@ public partial class MainWindow : Window
     bool _cookiesBroken;     // cookies failed once, so skip them from now on
     double? _progress;
     bool _shotBusy;
+    double _draftSpeed = 1.0;
+    static readonly double[] SpeedSteps = { 1.0, 1.5, 2.0, 4.0, 0.5, 0.25 };
     Task _engineTask;
     readonly List<Segment> _parts = new List<Segment>();
     bool _full;
@@ -1023,6 +1025,25 @@ public partial class MainWindow : Window
 
     // ------------------------------------------------------------------ several parts
 
+    static double NextSpeed(double current)
+    {
+        for (var i = 0; i < SpeedSteps.Length; i++)
+            if (Math.Abs(SpeedSteps[i] - current) < 0.001) return SpeedSteps[(i + 1) % SpeedSteps.Length];
+        return 1.0;
+    }
+
+    static string SpeedLabel(double speed)
+    {
+        return AudioTools.G(speed) + "×";
+    }
+
+    void Speed_Click(object sender, RoutedEventArgs e)
+    {
+        _draftSpeed = NextSpeed(_draftSpeed);
+        BtnSpeed.Content = SpeedLabel(_draftSpeed);
+        BtnSpeed.FontWeight = Editing.IsSped(_draftSpeed) ? FontWeights.Bold : FontWeights.Normal;
+    }
+
     void AddPart_Click(object sender, RoutedEventArgs e)
     {
         if (!TrimOn || _duration <= 0) return;
@@ -1030,7 +1051,7 @@ public partial class MainWindow : Window
         if (end - _trimStart < 0.2) { ShowMessage("Pick a range first.", true); return; }
         if (_parts.Count >= 20) { ShowMessage("That's the most parts Grab can join (20).", true); return; }
         ClearError();
-        _parts.Add(new Segment { Start = _trimStart, End = end });
+        _parts.Add(new Segment { Start = _trimStart, End = end, Speed = _draftSpeed });
         RefreshParts();
         UpdateState();
     }
@@ -1058,8 +1079,25 @@ public partial class MainWindow : Window
                 Text = (i + 1) + "   " + Fmt.TimeTenths(part.Start) + " – " + Fmt.TimeTenths(part.End),
                 FontSize = 12.5,
                 VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 6, 0),
+                Margin = new Thickness(0, 0, 8, 0),
             });
+            var speed = new Button
+            {
+                Content = SpeedLabel(part.Speed),
+                FontSize = 11.5,
+                FontWeight = Editing.IsSped(part.Speed) ? FontWeights.Bold : FontWeights.Normal,
+                Padding = new Thickness(7, 1, 7, 1),
+                Margin = new Thickness(0, 0, 4, 0),
+                Style = (Style)FindResource("SmallButton"),
+                ToolTip = "Speed of this part (click to change)",
+            };
+            speed.Click += (s, e) =>
+            {
+                part.Speed = NextSpeed(part.Speed);
+                RefreshParts();
+                UpdateState();
+            };
+            row.Children.Add(speed);
             var remove = new Button
             {
                 Content = "\uE711",
@@ -1243,10 +1281,10 @@ public partial class MainWindow : Window
         VolHint.Text = percent == 0
             ? "The sound will be removed."
             : percent == 100
-                ? "100% is the original volume. 0% removes the sound."
+                ? "100% is the original volume."
                 : percent > 100
-                    ? percent + "% is louder than the original. The player can only preview up to 100%."
-                    : percent + "% is quieter than the original.";
+                    ? "Louder than the original. The player previews up to 100%."
+                    : "Quieter than the original.";
     }
 
     void VolBox_Commit(object sender, RoutedEventArgs e)
@@ -1330,21 +1368,41 @@ public partial class MainWindow : Window
         var cfg = SettingsStore.Current;
         var gain = VolSlider.Value / 100.0;
 
-        // what to keep: several joined parts, one range, or everything
+        // what to keep: parts (joined, each with its own speed), one range, or everything
         var segments = new List<Segment>();
         var trim = false;
         double start = 0, end = 0;
-        if (TrimOn && _duration > 0 && _parts.Count >= 2)
+        if (TrimOn && _duration > 0)
         {
-            foreach (var part in _parts) segments.Add(new Segment { Start = part.Start, End = part.End });
-        }
-        else if (TrimOn && _duration > 0 && (_parts.Count == 1 || _trimEnd - _trimStart >= 0.2))
-        {
-            start = _parts.Count == 1 ? _parts[0].Start : _trimStart;
-            end = _parts.Count == 1 ? _parts[0].End : _trimEnd;
-            trim = true;
-            if (end >= _duration - 0.05) end = 0;                 // until the very end
-            if (start <= 0.05 && end == 0) trim = false;          // whole video, nothing to cut
+            if (_parts.Count >= 2 || (_parts.Count == 1 && Editing.IsSped(_parts[0].Speed)))
+            {
+                foreach (var part in _parts) segments.Add(new Segment { Start = part.Start, End = part.End, Speed = part.Speed });
+            }
+            else if (_parts.Count == 1)
+            {
+                start = _parts[0].Start;
+                end = _parts[0].End;
+                trim = true;
+            }
+            else if (_trimEnd - _trimStart >= 0.2)
+            {
+                if (Editing.IsSped(_draftSpeed))
+                {
+                    segments.Add(new Segment { Start = _trimStart, End = _trimEnd > 0 ? _trimEnd : _duration, Speed = _draftSpeed });
+                }
+                else
+                {
+                    start = _trimStart;
+                    end = _trimEnd;
+                    trim = true;
+                }
+            }
+
+            if (trim)
+            {
+                if (end >= _duration - 0.05) end = 0;                 // until the very end
+                if (start <= 0.05 && end == 0) trim = false;          // whole video, nothing to cut
+            }
         }
 
         var disk = CheckDisk(segments, trim, start, end);

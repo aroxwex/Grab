@@ -23,6 +23,7 @@
 - **Watch before you save.** Grab loads a small copy into its own player, so you can find the exact moment you want.
 - **Visual trimming.** Drag the start and end handles on the timeline, or press `[` and `]` at the playhead.
 - **Several parts, one file.** Keep more than one range and Grab joins them in order (cut out the boring middle).
+- **Speed per part.** Slow down or speed up any part: 0.25×, 0.5×, 1.5×, 2× or 4×. Sound keeps its pitch.
 - **Volume control.** A slider and a number from 0% to 200%. 0% removes the sound.
 - **Screenshots.** Save the current frame as a PNG.
 - **Full screen player.**
@@ -57,6 +58,8 @@ To update, extract the new version over the old one and keep your `data` folder.
 2. **Watch it.** Press play, drag the timeline, or press `Space`. Press `F` for full screen.
 3. **Trim (optional).** Switch **Trim** on, drag the white handles around the part you want and press **Download**.
    To keep several parts: pick a range, press **+ Add part**, pick the next one and repeat. They are joined in the order you add them.
+   The button left of **+ Add part** sets the speed of the range you are about to add; click the speed on a kept part to change it later.
+   To change the speed of the whole video, switch Trim on, leave the range as it is and pick a speed.
 4. **Choose the output.** Video or Audio, the resolution and the format on the right.
 5. **Volume (optional).** Move the slider or type a number. 0% = no sound, 200% = twice as loud.
 6. Press **Download video** (or **Download audio** / **Export**) and then **Show in folder**.
@@ -71,6 +74,19 @@ To update, extract the new version over the old one and keep your `data` folder.
 | `←` `→` | Seek 1 second (hold `Shift` for 5) |
 | `[` `]` | Set the trim start / end at the playhead |
 | `Esc` | Leave full screen / close settings |
+
+## Output quality
+
+| What | How it is saved |
+| --- | --- |
+| Link, video | The chosen resolution is downloaded and its video and audio are merged **without re-encoding**, so it is the original quality. MP4 prefers H.264 when the site offers it at that resolution. |
+| Link, audio | MP3 is converted at the bitrate you pick (it can't be better than the source). M4A, Opus and WAV are converted at the best setting. |
+| A trimmed range from a link | Only that part is fetched and cut. It is re-encoded around the cuts, a small quality cost. |
+| Volume | The picture is copied untouched. The sound is re-encoded (AAC 192 kbps, Opus 160 kbps, or the MP3 bitrate you picked). Boosting above 100% adds a gentle limiter. |
+| Several parts or speed changes | Re-encoded: H.264 (CRF 20, high quality) for MP4 and MKV, VP9 for WebM, AAC 192 kbps audio. |
+| Your own files | Normal export re-encodes with the same high-quality settings. **Fast cut** copies the streams (original quality, instant), but the cut can start a moment early. It doesn't apply when you keep several parts or change speed. |
+| Screenshots | Lossless PNG at the chosen resolution, taken from the original video, not from the small player copy. |
+| The player | A small 360p copy, only for watching and picking. It never affects what you save. |
 
 ## Settings
 

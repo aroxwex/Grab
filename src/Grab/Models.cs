@@ -14,7 +14,9 @@ public class Segment
 {
     public double Start;
     public double End;
+    public double Speed = 1.0;                 // 0.25 - 4, 1 = normal
     public double Length => End - Start;
+    public double OutputLength => Length / (Speed > 0 ? Speed : 1.0);
 }
 
 public class ResOption

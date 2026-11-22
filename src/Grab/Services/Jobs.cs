@@ -113,6 +113,104 @@ public static class AudioTools
     }
 }
 
+/// <summary>ffmpeg filter graphs for keeping several parts, each with its own speed.</summary>
+public static class Editing
+{
+    public static bool IsSped(double speed)
+    {
+        return Math.Abs(speed - 1.0) > 0.001;
+    }
+
+    /// <summary>One atempo filter only works between 0.5 and 2, so bigger changes are chained.</summary>
+    public static string Atempo(double speed)
+    {
+        if (!IsSped(speed)) return "";
+        var parts = new List<string>();
+        var s = speed;
+        while (s > 2.0) { parts.Add("atempo=2"); s /= 2.0; }
+        while (s < 0.5) { parts.Add("atempo=0.5"); s /= 0.5; }
+        parts.Add("atempo=" + AudioTools.G(s));
+        return string.Join(",", parts);
+    }
+
+    public static string SpeedSuffix(double speed)
+    {
+        return IsSped(speed) ? " - " + AudioTools.G(speed) + "x" : "";
+    }
+
+    /// <summary>
+    /// Builds the filter_complex text. With fromOneInput the parts are cut out of input 0 (a local file);
+    /// otherwise every part is its own, already cut, input (downloaded parts).
+    /// </summary>
+    public static string Graph(IList<Segment> segs, bool fromOneInput, bool video, bool audio, double gain, bool needsGain)
+    {
+        var f = new StringBuilder();
+        var n = segs.Count;
+        for (var i = 0; i < n; i++)
+        {
+            var seg = segs[i];
+            var input = fromOneInput ? 0 : i;
+            var speed = seg.Speed > 0 ? seg.Speed : 1.0;
+            var from = AudioTools.G(seg.Start);
+            var to = AudioTools.G(seg.End);
+            if (video)
+            {
+                f.Append("[" + input + ":v:0]");
+                if (fromOneInput) f.Append("trim=start=" + from + ":end=" + to + ",");
+                f.Append(IsSped(speed) ? "setpts=(PTS-STARTPTS)/" + AudioTools.G(speed) : "setpts=PTS-STARTPTS");
+                f.Append("[v" + i + "];");
+            }
+            if (audio)
+            {
+                f.Append("[" + input + ":a:0]");
+                if (fromOneInput) f.Append("atrim=start=" + from + ":end=" + to + ",");
+                f.Append("asetpts=PTS-STARTPTS");
+                var tempo = Atempo(speed);
+                if (tempo != "") f.Append("," + tempo);
+                f.Append("[a" + i + "];");
+            }
+        }
+        for (var i = 0; i < n; i++)
+        {
+            if (video) f.Append("[v" + i + "]");
+            if (audio) f.Append("[a" + i + "]");
+        }
+        f.Append("concat=n=" + n + ":v=" + (video ? 1 : 0) + ":a=" + (audio ? 1 : 0));
+        if (video) f.Append("[v]");
+        if (audio) f.Append(needsGain ? "[ac]" : "[a]");
+        if (audio && needsGain) f.Append(";[ac]" + AudioTools.VolumeFilterText(gain) + "[a]");
+        return f.ToString();
+    }
+
+    public static List<string> Codecs(bool video, bool audio, bool audioOnly, string videoFormat, string audioFormat, int bitrate)
+    {
+        var a = new List<string>();
+        if (video)
+        {
+            if (videoFormat == "webm") a.AddRange(new[] { "-c:v", "libvpx-vp9", "-crf", "32", "-b:v", "0", "-row-mt", "1" });
+            else a.AddRange(new[] { "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p" });
+        }
+        if (audio) a.AddRange(AudioTools.CodecArgs(audioOnly ? audioFormat : videoFormat, bitrate));
+        if (video && videoFormat == "mp4") a.AddRange(new[] { "-movflags", "+faststart" });
+        return a;
+    }
+
+    /// <summary>Joins downloaded parts and applies each part's speed (and the volume) in one go.</summary>
+    public static List<string> JoinArgs(IList<string> files, DownloadRequest r, string output)
+    {
+        var a = new List<string> { "-y", "-hide_banner" };
+        foreach (var f in files) { a.Add("-i"); a.Add(f); }
+        var video = !r.Audio;
+        var audio = r.Audio || !r.Silent;
+        a.AddRange(new[] { "-filter_complex", Graph(r.Segments, false, video, audio, r.Gain, r.NeedsGain) });
+        if (video) a.AddRange(new[] { "-map", "[v]" });
+        if (audio) a.AddRange(new[] { "-map", "[a]" });
+        a.AddRange(Codecs(video, audio, r.Audio, r.VideoFormat, r.AudioFormat, r.Bitrate));
+        a.Add(output);
+        return a;
+    }
+}
+
 /// <summary>Downloads from a link with yt-dlp (trim, several parts and volume handled here too).</summary>
 public class Downloader : JobBase
 {
@@ -165,7 +263,8 @@ public class Downloader : JobBase
             Directory.CreateDirectory(r.OutDir);
             Directory.CreateDirectory(tmp);
 
-            var multi = r.Segments.Count >= 2;
+            var multi = r.Segments.Count >= 1;
+            var gainDone = false;
             string src;
             string printedName;
 
@@ -192,19 +291,34 @@ public class Downloader : JobBase
                     if (printedName == null) printedName = one.Name;
                 }
 
-                Report(new ProgressInfo { Text = "Joining the parts…" });
                 if (ff == null) return new JobResult { Error = "ffmpeg not found. Put ffmpeg.exe in the bin folder." };
-                var listPath = Path.Combine(tmp, "parts.txt");
-                File.WriteAllLines(listPath, files.Select(f => "file '" + f.Replace('\\', '/').Replace("'", "'\\''") + "'"));
-                var joined = Path.Combine(tmp, "joined" + Path.GetExtension(files[0]));
-                var res = await Proc.RunAsync(ff, new[] { "-y", "-hide_banner", "-f", "concat", "-safe", "0", "-i", listPath, "-c", "copy", joined });
-                log.AppendLine(res.Err);
-                if (res.Code != 0 || !File.Exists(joined)) return new JobResult { Error = "Couldn't join the parts." };
-                src = joined;
+
+                if (!r.Segments.Any(x => Editing.IsSped(x.Speed)))
+                {
+                    // same speed everywhere: just glue the parts together, no re-encoding
+                    Report(new ProgressInfo { Text = "Joining the parts…" });
+                    var listPath = Path.Combine(tmp, "parts.txt");
+                    File.WriteAllLines(listPath, files.Select(f => "file '" + f.Replace('\\', '/').Replace("'", "'\\''") + "'"));
+                    var joined = Path.Combine(tmp, "joined" + Path.GetExtension(files[0]));
+                    var res = await Proc.RunAsync(ff, new[] { "-y", "-hide_banner", "-f", "concat", "-safe", "0", "-i", listPath, "-c", "copy", joined });
+                    log.AppendLine(res.Err);
+                    if (res.Code != 0 || !File.Exists(joined)) return new JobResult { Error = "Couldn't join the parts." };
+                    src = joined;
+                }
+                else
+                {
+                    Report(new ProgressInfo { Text = r.Segments.Count > 1 ? "Joining the parts and changing speed…" : "Changing speed…" });
+                    var edited = Path.Combine(tmp, "edited." + (r.Audio ? r.AudioFormat : r.VideoFormat));
+                    var res2 = await Proc.RunAsync(ff, Editing.JoinArgs(files, r, edited));
+                    log.AppendLine(res2.Err);
+                    if (res2.Code != 0 || !File.Exists(edited)) return new JobResult { Error = "Couldn't change the speed." };
+                    src = edited;
+                    gainDone = true;      // the volume was applied in the same step
+                }
             }
 
             var suffix = "";
-            if (r.Silent || r.NeedsGain)
+            if (!gainDone && (r.Silent || r.NeedsGain))
             {
                 Report(new ProgressInfo { Text = r.Silent ? "Removing sound…" : "Adjusting volume…" });
                 if (ff == null) return new JobResult { Error = "ffmpeg not found. Put ffmpeg.exe in the bin folder." };
@@ -220,7 +334,9 @@ public class Downloader : JobBase
                 src = adjusted;
                 suffix += AudioTools.Suffix(r.Silent, r.Gain);
             }
-            if (multi) suffix = " - " + r.Segments.Count + " parts" + suffix;
+            if (gainDone && (r.Silent || r.NeedsGain)) suffix += AudioTools.Suffix(r.Silent, r.Gain);
+            if (multi && r.Segments.Count >= 2) suffix = " - " + r.Segments.Count + " parts" + suffix;
+            else if (multi) suffix = " - trimmed" + Editing.SpeedSuffix(r.Segments[0].Speed) + suffix;
             else if (r.Trim) suffix = " - trimmed" + suffix;
 
             var baseName = printedName ?? Path.GetFileNameWithoutExtension(src);
@@ -364,50 +480,23 @@ public class Downloader : JobBase
 /// <summary>Trims / converts a local file with ffmpeg.</summary>
 public class LocalExporter : JobBase
 {
-    /// <summary>Keeps several parts of one file and joins them (always re-encodes).</summary>
+    /// <summary>Keeps one or more parts of a file, each with its own speed, and joins them (always re-encodes).</summary>
     static List<string> BuildMultiArgs(LocalRequest r, string output)
     {
         var a = new List<string> { "-y", "-hide_banner", "-nostats", "-progress", "pipe:1", "-i", r.Input };
         var video = !r.Audio;
         var audio = r.Audio || !r.Silent;
-        var n = r.Segments.Count;
-
-        var f = new StringBuilder();
-        for (var i = 0; i < n; i++)
-        {
-            var s = AudioTools.G(r.Segments[i].Start);
-            var e = AudioTools.G(r.Segments[i].End);
-            if (video) f.Append("[0:v:0]trim=start=" + s + ":end=" + e + ",setpts=PTS-STARTPTS[v" + i + "];");
-            if (audio) f.Append("[0:a:0]atrim=start=" + s + ":end=" + e + ",asetpts=PTS-STARTPTS[a" + i + "];");
-        }
-        for (var i = 0; i < n; i++)
-        {
-            if (video) f.Append("[v" + i + "]");
-            if (audio) f.Append("[a" + i + "]");
-        }
-        f.Append("concat=n=" + n + ":v=" + (video ? 1 : 0) + ":a=" + (audio ? 1 : 0));
-        if (video) f.Append("[v]");
-        if (audio) f.Append(r.NeedsGain ? "[ac]" : "[a]");
-        if (audio && r.NeedsGain) f.Append(";[ac]" + AudioTools.VolumeFilterText(r.Gain) + "[a]");
-
-        a.AddRange(new[] { "-filter_complex", f.ToString() });
+        a.AddRange(new[] { "-filter_complex", Editing.Graph(r.Segments, true, video, audio, r.Gain, r.NeedsGain) });
         if (video) a.AddRange(new[] { "-map", "[v]" });
         if (audio) a.AddRange(new[] { "-map", "[a]" });
-
-        if (video)
-        {
-            if (r.VideoFormat == "webm") a.AddRange(new[] { "-c:v", "libvpx-vp9", "-crf", "32", "-b:v", "0", "-row-mt", "1" });
-            else a.AddRange(new[] { "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p" });
-        }
-        if (audio) a.AddRange(AudioTools.CodecArgs(r.Audio ? r.AudioFormat : r.VideoFormat, r.Bitrate));
-        if (video && r.VideoFormat == "mp4") a.AddRange(new[] { "-movflags", "+faststart" });
+        a.AddRange(Editing.Codecs(video, audio, r.Audio, r.VideoFormat, r.AudioFormat, r.Bitrate));
         a.Add(output);
         return a;
     }
 
     public static List<string> BuildArgs(LocalRequest r, string output)
     {
-        if (r.Segments.Count >= 2) return BuildMultiArgs(r, output);
+        if (r.Segments.Count >= 1) return BuildMultiArgs(r, output);
 
         var a = new List<string> { "-y", "-hide_banner", "-nostats", "-progress", "pipe:1" };
         if (r.Trim)
@@ -478,14 +567,15 @@ public class LocalExporter : JobBase
         {
             Directory.CreateDirectory(r.OutDir);
             var ext = r.Audio ? r.AudioFormat : r.VideoFormat;
-            var multi = r.Segments.Count >= 2;
-            var suffix = multi ? " - " + r.Segments.Count + " parts"
+            var multi = r.Segments.Count >= 1;
+            var suffix = r.Segments.Count >= 2 ? " - " + r.Segments.Count + " parts"
+                : multi ? " - trimmed" + Editing.SpeedSuffix(r.Segments[0].Speed)
                 : r.Trim ? " - trimmed" : (r.Silent || r.NeedsGain ? "" : " - converted");
             if (r.Silent || r.NeedsGain) suffix += AudioTools.Suffix(r.Silent, r.Gain);
             var stem = SafeName(Path.GetFileNameWithoutExtension(r.Input));
             var output = UniquePath(Path.Combine(r.OutDir, stem + suffix + "." + ext));
 
-            var length = multi ? r.Segments.Sum(x => x.Length)
+            var length = multi ? r.Segments.Sum(x => x.OutputLength)
                 : r.Trim ? ((r.TrimEnd > 0 ? r.TrimEnd : r.Duration) - r.TrimStart) : r.Duration;
             Current = Process.Start(Proc.Info(ff, BuildArgs(r, output)));
             var p = Current;

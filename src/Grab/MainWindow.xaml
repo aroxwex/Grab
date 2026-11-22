@@ -221,10 +221,14 @@
                                          LostFocus="TrimBox_Commit" KeyDown="TrimBox_KeyDown"/>
                                 <Button x:Name="BtnSetEnd" Grid.Column="5" Content="Set here" Style="{StaticResource SmallButton}"
                                         Margin="6,0,0,0" ToolTip="Use the playhead position  ( ] )" Click="SetEnd_Click"/>
-                                <Button x:Name="BtnAddPart" Grid.Column="6" Content="+ Add part" Style="{StaticResource SmallButton}"
-                                        HorizontalAlignment="Left" Margin="18,0,0,0"
-                                        ToolTip="Keep this range and pick another one. All kept parts are joined in the order you add them."
-                                        Click="AddPart_Click"/>
+                                <StackPanel Grid.Column="6" Orientation="Horizontal" HorizontalAlignment="Left" Margin="18,0,0,0">
+                                    <Button x:Name="BtnSpeed" Content="1×" Style="{StaticResource SmallButton}" MinWidth="44"
+                                            ToolTip="Speed of this range (click to change): 1×, 1.5×, 2×, 4×, 0.5×, 0.25×"
+                                            Click="Speed_Click"/>
+                                    <Button x:Name="BtnAddPart" Content="+ Add part" Style="{StaticResource SmallButton}" Margin="6,0,0,0"
+                                            ToolTip="Keep this range and pick another one. All kept parts are joined in the order you add them."
+                                            Click="AddPart_Click"/>
+                                </StackPanel>
                                 <StackPanel Grid.Column="7" Orientation="Horizontal" VerticalAlignment="Center">
                                     <TextBlock Text="Length" Style="{StaticResource Muted}" VerticalAlignment="Center" Margin="0,0,8,0"/>
                                     <TextBlock x:Name="LengthText" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center"
@@ -234,7 +238,7 @@
 
                             <StackPanel x:Name="PartsBox" Margin="0,8,0,0" Visibility="Collapsed">
                                 <Grid>
-                                    <TextBlock Text="KEPT PARTS (JOINED IN THIS ORDER)" Style="{StaticResource SectionLabel}" Margin="0,0,0,6"/>
+                                    <TextBlock Text="KEPT PARTS (JOINED IN THIS ORDER, CLICK THE SPEED TO CHANGE IT)" Style="{StaticResource SectionLabel}" Margin="0,0,0,6"/>
                                     <Button Content="Clear" Style="{StaticResource GhostButton}" Padding="8,0" FontSize="11.5"
                                             HorizontalAlignment="Right" Margin="0,-6,-8,0" Click="ClearParts_Click"/>
                                 </Grid>
@@ -329,13 +333,13 @@
                                                 TickFrequency="1" IsSnapToTickEnabled="True" Style="{StaticResource GrabSlider}"
                                                 VerticalAlignment="Center" ValueChanged="VolSlider_ValueChanged"/>
                                         <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="14,0,0,0" VerticalAlignment="Center">
-                                            <TextBox x:Name="VolBox" Width="72" Height="34" Text="100" FontSize="14" Padding="12,0"
+                                            <TextBox x:Name="VolBox" Width="76" Height="34" Text="100" FontSize="14" Padding="10,0"
                                                      LostFocus="VolBox_Commit" KeyDown="VolBox_KeyDown"/>
                                             <TextBlock Text="%" Style="{StaticResource Muted}" Margin="6,0,0,0" VerticalAlignment="Center"/>
                                         </StackPanel>
                                     </Grid>
                                     <TextBlock x:Name="VolHint" Style="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,4,0,0"
-                                               Text="100% is the original volume. 0% removes the sound."/>
+                                               Text="100% is the original volume."/>
                                 </StackPanel>
 
                                 <Grid x:Name="FastRow" Margin="0,18,0,0" Visibility="Collapsed">
