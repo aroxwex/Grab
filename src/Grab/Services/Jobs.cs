@@ -54,16 +54,20 @@ public abstract class JobBase
 /// <summary>Volume helpers shared by downloads and local exports.</summary>
 public static class AudioTools
 {
-    static string G(double v)
+    public static string G(double v)
     {
         return v.ToString("0.###", CultureInfo.InvariantCulture);
+    }
+
+    public static string VolumeFilterText(double gain)
+    {
+        return gain > 1.0 ? "volume=" + G(gain) + ",alimiter=limit=0.95" : "volume=" + G(gain);
     }
 
     /// <summary>ffmpeg volume filter. Boosting adds a gentle limiter so it doesn't clip harshly.</summary>
     public static string[] VolumeFilter(double gain)
     {
-        var f = gain > 1.0 ? "volume=" + G(gain) + ",alimiter=limit=0.95" : "volume=" + G(gain);
-        return new[] { "-af", f };
+        return new[] { "-af", VolumeFilterText(gain) };
     }
 
     public static string[] CodecArgs(string ext, int bitrate)
@@ -109,7 +113,7 @@ public static class AudioTools
     }
 }
 
-/// <summary>Downloads from a link with yt-dlp (trim and volume handled here too).</summary>
+/// <summary>Downloads from a link with yt-dlp (trim, several parts and volume handled here too).</summary>
 public class Downloader : JobBase
 {
     static readonly Regex TimeRe = new Regex(@"time=(\d+):(\d+):(\d+(?:\.\d+)?)", RegexOptions.Compiled);
@@ -128,6 +132,26 @@ public class Downloader : JobBase
         return res;
     }
 
+    static DownloadRequest PartOf(DownloadRequest r, Segment seg)
+    {
+        return new DownloadRequest
+        {
+            Url = r.Url,
+            Audio = r.Audio,
+            Height = r.Height,
+            VideoFormat = r.VideoFormat,
+            AudioFormat = r.AudioFormat,
+            Bitrate = r.Bitrate,
+            Trim = true,
+            TrimStart = seg.Start,
+            TrimEnd = seg.End,
+            Gain = r.Gain,            // only decides audio-less formats here, volume is applied once at the end
+            OutDir = r.OutDir,
+            Cookies = r.Cookies,
+            Duration = r.Duration,
+        };
+    }
+
     async Task<JobResult> RunOnceAsync(DownloadRequest r)
     {
         var yt = Tools.Find("yt-dlp");
@@ -140,106 +164,44 @@ public class Downloader : JobBase
         {
             Directory.CreateDirectory(r.OutDir);
             Directory.CreateDirectory(tmp);
-            var args = YtDlp.BuildArgs(r, tmp, ff != null ? Path.GetDirectoryName(ff) : "");
-            var streams = (!r.Audio && !r.Silent) ? 2 : 1;
-            log.AppendLine(Quote(yt) + " " + string.Join(" ", args.Select(Quote)));
-            log.AppendLine();
 
-            Current = Process.Start(Proc.Info(yt, args));
-            var p = Current;
-            var errTask = p.StandardError.ReadToEndAsync();
+            var multi = r.Segments.Count >= 2;
+            string src;
+            string printedName;
 
-            var sectionLength = r.Trim ? ((r.TrimEnd > 0 ? r.TrimEnd : r.Duration) - r.TrimStart) : 0;
-            Report(new ProgressInfo { Text = r.Trim ? "Downloading the selected part…" : "Starting…" });
-
-            var stage = 0;
-            var destinations = 0;
-            string lastFormat = null;
-            string line;
-            while ((line = await p.StandardOutput.ReadLineAsync()) != null)
+            if (!multi)
             {
-                line = line.Trim();
-                if (line.Length == 0) continue;
-                if (log.Length < 200000) log.AppendLine(line);
-
-                if (line.StartsWith("@@"))
-                {
-                    var f = line.Substring(2).Split('|');
-                    if (f.Length < 6) continue;
-                    if (f[5] != lastFormat) { stage++; lastFormat = f[5]; }
-                    var done = ParseNum(f[0]);
-                    var total = ParseNum(f[1]);
-                    if (total <= 0) total = ParseNum(f[2]);
-                    var speed = ParseNum(f[3]);
-                    var eta = ParseNum(f[4]);
-
-                    double? fraction = null;
-                    if (total > 0 && done >= 0)
-                        fraction = Math.Min(((Math.Min(stage, streams) - 1) + Math.Min(done / total, 1.0)) / streams, 0.99);
-
-                    Report(new ProgressInfo
-                    {
-                        Fraction = fraction,
-                        Text = fraction.HasValue ? "Downloading" : (r.Trim ? "Downloading the selected part…" : "Downloading…"),
-                        Speed = speed > 0 ? Fmt.Size(speed) + "/s" : "",
-                        Eta = eta >= 0 ? Fmt.Time(eta) + " left" : "",
-                    });
-                }
-                else if (line.StartsWith("[download] Destination:"))
-                {
-                    destinations++;
-                }
-                else if (r.Trim && sectionLength > 0 && TimeRe.IsMatch(line))
-                {
-                    // ffmpeg prints its position while it cuts the section
-                    var m = TimeRe.Match(line);
-                    var t = ParseNum(m.Groups[1].Value) * 3600 + ParseNum(m.Groups[2].Value) * 60 + ParseNum(m.Groups[3].Value);
-                    var part = Math.Min(Math.Max(destinations, 1), streams);
-                    var frac = Math.Min(((part - 1) + Math.Min(t / sectionLength, 1.0)) / streams, 0.99);
-                    Report(new ProgressInfo { Fraction = frac, Text = "Downloading the selected part" });
-                }
-                else if (line.StartsWith("[Merger]")) Report(new ProgressInfo { Text = "Merging…" });
-                else if (line.StartsWith("[ExtractAudio]")) Report(new ProgressInfo { Text = "Converting audio…" });
-                else if (line.StartsWith("[VideoRemuxer]") || line.StartsWith("[VideoConvertor]") || line.StartsWith("[Fixup"))
-                    Report(new ProgressInfo { Text = "Processing…" });
+                var one = await FetchOneAsync(r, tmp, 0, 1, "", log, yt, ff);
+                if (one.Failure != null) return one.Failure;
+                src = one.File;
+                printedName = one.Name;
             }
-            await p.WaitForExitAsync();
-            var err = await errTask;
-            log.AppendLine("--- stderr ---");
-            log.AppendLine(err);
-
-            if (CancelRequested) return new JobResult { Cancelled = true };
-            if (p.ExitCode != 0)
+            else
             {
-                var lines = err.Split('\n').Where(l => l.Contains("ERROR")).ToList();
-                return new JobResult
+                var files = new List<string>();
+                printedName = null;
+                for (var i = 0; i < r.Segments.Count; i++)
                 {
-                    Error = YtDlp.Friendly(lines.Count > 0 ? lines[lines.Count - 1] : err),
-                    CookieProblem = YtDlp.IsCookieProblem(err),
-                };
-            }
-
-            string src = null;
-            var pathFile = Path.Combine(tmp, "_path.txt");
-            string printedName = null;
-            if (File.Exists(pathFile))
-            {
-                var last = File.ReadAllLines(pathFile).LastOrDefault(l => !string.IsNullOrWhiteSpace(l));
-                if (last != null)
-                {
-                    printedName = Path.GetFileNameWithoutExtension(last.Trim());
-                    if (File.Exists(last.Trim())) src = last.Trim();
+                    if (CancelRequested) return new JobResult { Cancelled = true };
+                    var partDir = Path.Combine(tmp, "part" + i);
+                    Directory.CreateDirectory(partDir);
+                    var one = await FetchOneAsync(PartOf(r, r.Segments[i]), partDir, i, r.Segments.Count,
+                        "Part " + (i + 1) + " of " + r.Segments.Count + ": ", log, yt, ff);
+                    if (one.Failure != null) return one.Failure;
+                    files.Add(one.File);
+                    if (printedName == null) printedName = one.Name;
                 }
+
+                Report(new ProgressInfo { Text = "Joining the parts…" });
+                if (ff == null) return new JobResult { Error = "ffmpeg not found. Put ffmpeg.exe in the bin folder." };
+                var listPath = Path.Combine(tmp, "parts.txt");
+                File.WriteAllLines(listPath, files.Select(f => "file '" + f.Replace('\\', '/').Replace("'", "'\\''") + "'"));
+                var joined = Path.Combine(tmp, "joined" + Path.GetExtension(files[0]));
+                var res = await Proc.RunAsync(ff, new[] { "-y", "-hide_banner", "-f", "concat", "-safe", "0", "-i", listPath, "-c", "copy", joined });
+                log.AppendLine(res.Err);
+                if (res.Code != 0 || !File.Exists(joined)) return new JobResult { Error = "Couldn't join the parts." };
+                src = joined;
             }
-            if (src == null)
-            {
-                src = new DirectoryInfo(tmp).GetFiles()
-                    .Where(x => x.Name != "_path.txt")
-                    .OrderByDescending(x => x.Length)
-                    .Select(x => x.FullName)
-                    .FirstOrDefault();
-            }
-            if (src == null) return new JobResult { Error = "The downloaded file wasn't found." };
 
             var suffix = "";
             if (r.Silent || r.NeedsGain)
@@ -258,11 +220,20 @@ public class Downloader : JobBase
                 src = adjusted;
                 suffix += AudioTools.Suffix(r.Silent, r.Gain);
             }
-            if (r.Trim) suffix = " - trimmed" + suffix;
+            if (multi) suffix = " - " + r.Segments.Count + " parts" + suffix;
+            else if (r.Trim) suffix = " - trimmed" + suffix;
 
             var baseName = printedName ?? Path.GetFileNameWithoutExtension(src);
             var final = UniquePath(Path.Combine(r.OutDir, SafeName(baseName + suffix) + Path.GetExtension(src)));
-            File.Move(src, final);
+            try
+            {
+                File.Move(src, final);
+            }
+            catch (IOException ex)
+            {
+                log.AppendLine(ex.ToString());
+                return new JobResult { Error = "Couldn't save the file to " + r.OutDir + ". " + YtDlp.Friendly(ex.Message) };
+            }
             return new JobResult { Ok = true, File = final };
         }
         catch (Exception ex)
@@ -276,13 +247,168 @@ public class Downloader : JobBase
             try { Directory.Delete(tmp, true); } catch { }
         }
     }
+
+    /// <summary>Downloads one file (the whole video or one section). Failure is null when it worked.</summary>
+    async Task<(JobResult Failure, string File, string Name)> FetchOneAsync(
+        DownloadRequest r, string dir, int index, int count, string label, StringBuilder log, string yt, string ff)
+    {
+        var args = YtDlp.BuildArgs(r, dir, ff != null ? Path.GetDirectoryName(ff) : "");
+        var streams = (!r.Audio && !r.Silent) ? 2 : 1;
+        log.AppendLine(Quote(yt) + " " + string.Join(" ", args.Select(Quote)));
+        log.AppendLine();
+
+        double? Scale(double? f)
+        {
+            return f.HasValue ? Math.Min((index + f.Value) / count, 0.99) : (double?)null;
+        }
+
+        Current = Process.Start(Proc.Info(yt, args));
+        var p = Current;
+        var errTask = p.StandardError.ReadToEndAsync();
+
+        var sectionLength = r.Trim ? ((r.TrimEnd > 0 ? r.TrimEnd : r.Duration) - r.TrimStart) : 0;
+        Report(new ProgressInfo { Text = label + (r.Trim ? "Downloading the selected part…" : "Starting…") });
+
+        var stage = 0;
+        var destinations = 0;
+        string lastFormat = null;
+        string line;
+        while ((line = await p.StandardOutput.ReadLineAsync()) != null)
+        {
+            line = line.Trim();
+            if (line.Length == 0) continue;
+            if (log.Length < 200000) log.AppendLine(line);
+
+            if (line.StartsWith("@@"))
+            {
+                var f = line.Substring(2).Split('|');
+                if (f.Length < 6) continue;
+                if (f[5] != lastFormat) { stage++; lastFormat = f[5]; }
+                var done = ParseNum(f[0]);
+                var total = ParseNum(f[1]);
+                if (total <= 0) total = ParseNum(f[2]);
+                var speed = ParseNum(f[3]);
+                var eta = ParseNum(f[4]);
+
+                double? fraction = null;
+                if (total > 0 && done >= 0)
+                    fraction = ((Math.Min(stage, streams) - 1) + Math.Min(done / total, 1.0)) / streams;
+
+                Report(new ProgressInfo
+                {
+                    Fraction = Scale(fraction),
+                    Text = label + (fraction.HasValue ? "Downloading" : (r.Trim ? "Downloading the selected part…" : "Downloading…")),
+                    Speed = speed > 0 ? Fmt.Size(speed) + "/s" : "",
+                    Eta = eta >= 0 ? Fmt.Time(eta) + " left" : "",
+                });
+            }
+            else if (line.StartsWith("[download] Destination:"))
+            {
+                destinations++;
+            }
+            else if (r.Trim && sectionLength > 0 && TimeRe.IsMatch(line))
+            {
+                // ffmpeg prints its position while it cuts the section
+                var m = TimeRe.Match(line);
+                var t = ParseNum(m.Groups[1].Value) * 3600 + ParseNum(m.Groups[2].Value) * 60 + ParseNum(m.Groups[3].Value);
+                var part = Math.Min(Math.Max(destinations, 1), streams);
+                var frac = ((part - 1) + Math.Min(t / sectionLength, 1.0)) / streams;
+                Report(new ProgressInfo { Fraction = Scale(frac), Text = label + "Downloading the selected part" });
+            }
+            else if (line.StartsWith("[Merger]")) Report(new ProgressInfo { Text = label + "Merging…" });
+            else if (line.StartsWith("[ExtractAudio]")) Report(new ProgressInfo { Text = label + "Converting audio…" });
+            else if (line.StartsWith("[VideoRemuxer]") || line.StartsWith("[VideoConvertor]") || line.StartsWith("[Fixup"))
+                Report(new ProgressInfo { Text = label + "Processing…" });
+        }
+        await p.WaitForExitAsync();
+        var err = await errTask;
+        log.AppendLine("--- stderr ---");
+        log.AppendLine(err);
+
+        if (CancelRequested) return (new JobResult { Cancelled = true }, null, null);
+        if (p.ExitCode != 0)
+        {
+            var lines = err.Split('\n').Where(l => l.Contains("ERROR")).ToList();
+            return (new JobResult
+            {
+                Error = YtDlp.Friendly(lines.Count > 0 ? lines[lines.Count - 1] : err),
+                CookieProblem = YtDlp.IsCookieProblem(err),
+            }, null, null);
+        }
+
+        string src = null;
+        string printedName = null;
+        var pathFile = Path.Combine(dir, "_path.txt");
+        if (File.Exists(pathFile))
+        {
+            var last = File.ReadAllLines(pathFile).LastOrDefault(l => !string.IsNullOrWhiteSpace(l));
+            if (last != null)
+            {
+                printedName = Path.GetFileNameWithoutExtension(last.Trim());
+                if (File.Exists(last.Trim())) src = last.Trim();
+            }
+        }
+        if (src == null)
+        {
+            src = new DirectoryInfo(dir).GetFiles()
+                .Where(x => x.Name != "_path.txt")
+                .OrderByDescending(x => x.Length)
+                .Select(x => x.FullName)
+                .FirstOrDefault();
+        }
+        if (src == null) return (new JobResult { Error = "The downloaded file wasn't found." }, null, null);
+        return (null, src, printedName);
+    }
 }
 
 /// <summary>Trims / converts a local file with ffmpeg.</summary>
 public class LocalExporter : JobBase
 {
+    /// <summary>Keeps several parts of one file and joins them (always re-encodes).</summary>
+    static List<string> BuildMultiArgs(LocalRequest r, string output)
+    {
+        var a = new List<string> { "-y", "-hide_banner", "-nostats", "-progress", "pipe:1", "-i", r.Input };
+        var video = !r.Audio;
+        var audio = r.Audio || !r.Silent;
+        var n = r.Segments.Count;
+
+        var f = new StringBuilder();
+        for (var i = 0; i < n; i++)
+        {
+            var s = AudioTools.G(r.Segments[i].Start);
+            var e = AudioTools.G(r.Segments[i].End);
+            if (video) f.Append("[0:v:0]trim=start=" + s + ":end=" + e + ",setpts=PTS-STARTPTS[v" + i + "];");
+            if (audio) f.Append("[0:a:0]atrim=start=" + s + ":end=" + e + ",asetpts=PTS-STARTPTS[a" + i + "];");
+        }
+        for (var i = 0; i < n; i++)
+        {
+            if (video) f.Append("[v" + i + "]");
+            if (audio) f.Append("[a" + i + "]");
+        }
+        f.Append("concat=n=" + n + ":v=" + (video ? 1 : 0) + ":a=" + (audio ? 1 : 0));
+        if (video) f.Append("[v]");
+        if (audio) f.Append(r.NeedsGain ? "[ac]" : "[a]");
+        if (audio && r.NeedsGain) f.Append(";[ac]" + AudioTools.VolumeFilterText(r.Gain) + "[a]");
+
+        a.AddRange(new[] { "-filter_complex", f.ToString() });
+        if (video) a.AddRange(new[] { "-map", "[v]" });
+        if (audio) a.AddRange(new[] { "-map", "[a]" });
+
+        if (video)
+        {
+            if (r.VideoFormat == "webm") a.AddRange(new[] { "-c:v", "libvpx-vp9", "-crf", "32", "-b:v", "0", "-row-mt", "1" });
+            else a.AddRange(new[] { "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p" });
+        }
+        if (audio) a.AddRange(AudioTools.CodecArgs(r.Audio ? r.AudioFormat : r.VideoFormat, r.Bitrate));
+        if (video && r.VideoFormat == "mp4") a.AddRange(new[] { "-movflags", "+faststart" });
+        a.Add(output);
+        return a;
+    }
+
     public static List<string> BuildArgs(LocalRequest r, string output)
     {
+        if (r.Segments.Count >= 2) return BuildMultiArgs(r, output);
+
         var a = new List<string> { "-y", "-hide_banner", "-nostats", "-progress", "pipe:1" };
         if (r.Trim)
         {
@@ -352,12 +478,15 @@ public class LocalExporter : JobBase
         {
             Directory.CreateDirectory(r.OutDir);
             var ext = r.Audio ? r.AudioFormat : r.VideoFormat;
-            var suffix = r.Trim ? " - trimmed" : (r.Silent || r.NeedsGain ? "" : " - converted");
+            var multi = r.Segments.Count >= 2;
+            var suffix = multi ? " - " + r.Segments.Count + " parts"
+                : r.Trim ? " - trimmed" : (r.Silent || r.NeedsGain ? "" : " - converted");
             if (r.Silent || r.NeedsGain) suffix += AudioTools.Suffix(r.Silent, r.Gain);
             var stem = SafeName(Path.GetFileNameWithoutExtension(r.Input));
             var output = UniquePath(Path.Combine(r.OutDir, stem + suffix + "." + ext));
 
-            var length = r.Trim ? ((r.TrimEnd > 0 ? r.TrimEnd : r.Duration) - r.TrimStart) : r.Duration;
+            var length = multi ? r.Segments.Sum(x => x.Length)
+                : r.Trim ? ((r.TrimEnd > 0 ? r.TrimEnd : r.Duration) - r.TrimStart) : r.Duration;
             Current = Process.Start(Proc.Info(ff, BuildArgs(r, output)));
             var p = Current;
             var errTask = p.StandardError.ReadToEndAsync();
@@ -370,7 +499,7 @@ public class LocalExporter : JobBase
                 var us = ParseNum(line.Substring("out_time_us=".Length));
                 if (us < 0) continue;
                 double? fraction = length > 0 ? Math.Min(us / 1000000.0 / length, 0.99) : (double?)null;
-                Report(new ProgressInfo { Fraction = fraction, Text = r.FastCut ? "Cutting…" : "Exporting" });
+                Report(new ProgressInfo { Fraction = fraction, Text = r.FastCut && !multi ? "Cutting…" : "Exporting" });
             }
             await p.WaitForExitAsync();
             var err = await errTask;
@@ -402,6 +531,8 @@ public class LocalExporter : JobBase
         try
         {
             Directory.CreateDirectory(AppPaths.TempDir);
+            var free = DiskSpace.FreeBytes(AppPaths.TempDir);
+            if (free >= 0 && free < 1000000000) return "";          // not enough room for a player copy
             var output = Path.Combine(AppPaths.TempDir, "preview-" + DateTime.Now.Ticks + ".mp4");
             var args = new List<string>
             {
@@ -487,5 +618,40 @@ public static class PreviewMaker
             try { Directory.Delete(dir, true); } catch { }
         }
         return "";
+    }
+}
+
+/// <summary>Saves one frame of a video as a PNG.</summary>
+public static class Screenshots
+{
+    public static async Task<(string File, string Error)> CaptureAsync(string input, double seconds, string outDir, string title)
+    {
+        var ff = Tools.Find("ffmpeg");
+        if (ff == null) return ("", "ffmpeg not found. Put ffmpeg.exe in the bin folder.");
+        try
+        {
+            Directory.CreateDirectory(outDir);
+            var stem = (title ?? "").Trim();
+            foreach (var c in Path.GetInvalidFileNameChars()) stem = stem.Replace(c, '_');
+            if (stem.Length == 0) stem = "Screenshot";
+            if (stem.Length > 100) stem = stem.Substring(0, 100);
+            var stamp = Fmt.Time(seconds).Replace(':', '.');
+            var path = Path.Combine(outDir, stem + " - " + stamp + ".png");
+            for (var i = 1; File.Exists(path); i++) path = Path.Combine(outDir, stem + " - " + stamp + " (" + i + ").png");
+
+            var args = new List<string> { "-y", "-hide_banner", "-loglevel", "error", "-ss", Fmt.Hms(seconds), "-i", input, "-frames:v", "1", path };
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+            var r = await Proc.RunAsync(ff, args, cts.Token);
+            if (r.Code != 0 || !File.Exists(path))
+            {
+                var last = r.Err.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).LastOrDefault();
+                return ("", string.IsNullOrEmpty(last) ? "Couldn't save the screenshot." : YtDlp.Friendly(last));
+            }
+            return (path, "");
+        }
+        catch (Exception ex)
+        {
+            return ("", YtDlp.Friendly(ex.Message));
+        }
     }
 }

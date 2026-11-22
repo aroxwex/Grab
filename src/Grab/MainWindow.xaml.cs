@@ -38,6 +38,8 @@ public partial class MainWindow : Window
     bool _suppress;          // true while we set the text box from code
     bool _cookiesBroken;     // cookies failed once, so skip them from now on
     double? _progress;
+    bool _shotBusy;
+    readonly List<Segment> _parts = new List<Segment>();
     bool _full;
     bool _volSync;
     WindowState _prevState;
@@ -75,6 +77,7 @@ public partial class MainWindow : Window
             _trimStart = start;
             _trimEnd = end;
             UpdateTrimFields();
+            ClampPlayhead();
             UpdateState();
         };
 
@@ -105,7 +108,6 @@ public partial class MainWindow : Window
 
         YtVersionText.Text = yt == null ? "yt-dlp not found" : "yt-dlp " + ver;
         FfmpegText.Text = ff == null ? "ffmpeg not found" : "ffmpeg ready";
-        FooterLeft.Text = (yt == null ? "yt-dlp missing" : "yt-dlp " + ver) + "   ·   " + (ff == null ? "ffmpeg missing" : "ffmpeg ready");
 
         if (yt == null)
             ShowMessage("yt-dlp not found. Put yt-dlp.exe in the bin folder next to Grab.exe.", true);
@@ -146,7 +148,8 @@ public partial class MainWindow : Window
         BtnBack.Visibility = _lastResults != null && link && _info != null ? Visibility.Visible : Visibility.Collapsed;
 
         TrimSwitch.IsEnabled = _duration > 0;
-        BtnGo.Content = link ? (IsAudio ? "Download audio" : "Download video") : "Export";
+        var partsNote = TrimOn && _parts.Count >= 2 ? " (" + _parts.Count + " parts)" : "";
+        BtnGo.Content = (link ? (IsAudio ? "Download audio" : "Download video") : "Export") + partsNote;
         BtnGo.IsEnabled = hasMedia && !_busy;
     }
 
@@ -224,6 +227,7 @@ public partial class MainWindow : Window
         _duration = 0;
         _trimStart = 0;
         _trimEnd = 0;
+        _parts.Clear();
 
         ThumbImage.Source = null;
         ThumbImage.Visibility = Visibility.Collapsed;
@@ -242,6 +246,8 @@ public partial class MainWindow : Window
         TrimBar.Position = 0;
         TrimBar.Start = 0;
         TrimBar.End = 0;
+        TrimBar.SetParts(null);
+        PartsBox.Visibility = Visibility.Collapsed;
         TimeText.Text = "0:00 / 0:00";
 
         RbVideo.IsEnabled = true;
@@ -549,6 +555,17 @@ public partial class MainWindow : Window
     async Task StartPreviewAsync(int token)
     {
         BtnLoadPlayer.Visibility = Visibility.Collapsed;
+
+        // the player copy needs room: skip it politely instead of filling the disk
+        var needed = (_duration > 0 ? _duration * 120000.0 : 400000000.0) + 300000000.0;
+        var free = DiskSpace.FreeBytes(AppPaths.TempDir);
+        if (free >= 0 && free < needed)
+        {
+            SetPreviewStatus("Not enough free disk space for the player (about " + Fmt.Size(needed) + " needed, " + Fmt.Size(free) + " free). You can still trim by typing the times.");
+            BtnLoadPlayer.Visibility = Visibility.Visible;
+            return;
+        }
+
         SetPreviewStatus("Preparing the player…");
         _proxyCts = new CancellationTokenSource();
         var cts = _proxyCts;
@@ -560,7 +577,10 @@ public partial class MainWindow : Window
         if (token != _fetchToken || cts.IsCancellationRequested) return;
         if (string.IsNullOrEmpty(file))
         {
-            SetPreviewStatus("Couldn't load the player. You can still type the start and end times.");
+            var left = DiskSpace.FreeBytes(AppPaths.TempDir);
+            SetPreviewStatus(left >= 0 && left < 300000000.0
+                ? "Your disk is almost full, so the player couldn't be loaded."
+                : "Couldn't load the player. You can still type the start and end times.");
             BtnLoadPlayer.Visibility = Visibility.Visible;
             return;
         }
@@ -620,14 +640,20 @@ public partial class MainWindow : Window
         RefreshChipColors();
     }
 
-    /// <summary>Selected chip is blue, so its small size text turns light.</summary>
+    /// <summary>The selected chip is light, so its texts turn dark.</summary>
     void RefreshChipColors()
     {
-        var light = new SolidColorBrush(Color.FromArgb(0xCC, 0xFF, 0xFF, 0xFF));
+        var dark = (Brush)FindResource("DarkBrush");
+        var darkSoft = new SolidColorBrush(Color.FromRgb(0x55, 0x55, 0x55));
         foreach (var child in ResPanel.Children)
         {
-            if (child is RadioButton rb && rb.Content is StackPanel sp && sp.Children.Count > 1 && sp.Children[1] is TextBlock sub)
-                sub.Foreground = rb.IsChecked == true ? light : (Brush)FindResource("MutedBrush");
+            if (child is RadioButton rb && rb.Content is StackPanel sp && sp.Children.Count > 1
+                && sp.Children[0] is TextBlock label && sp.Children[1] is TextBlock sub)
+            {
+                var on = rb.IsChecked == true;
+                label.Foreground = on ? dark : (Brush)FindResource("TextBrush");
+                sub.Foreground = on ? darkSoft : (Brush)FindResource("MutedBrush");
+            }
         }
     }
 
@@ -837,20 +863,38 @@ public partial class MainWindow : Window
     void SeekTo(double seconds)
     {
         seconds = Math.Max(0, _duration > 0 ? Math.Min(seconds, _duration) : seconds);
+        if (TrimOn && _trimEnd > 0) seconds = Math.Min(Math.Max(seconds, _trimStart), _trimEnd);
         if (_mediaReady) Player.Position = TimeSpan.FromSeconds(seconds);
         TrimBar.Position = seconds;
         UpdateTimeLabel(seconds);
+    }
+
+    /// <summary>Moves the playhead back inside the trim range if it ended up outside.</summary>
+    void ClampPlayhead()
+    {
+        if (!TrimOn || _trimEnd <= 0) return;
+        var pos = CurrentPosition;
+        var clamped = Math.Min(Math.Max(pos, _trimStart), _trimEnd);
+        if (Math.Abs(clamped - pos) > 0.05) SeekTo(clamped);
     }
 
     void Tick(object sender, EventArgs e)
     {
         if (!_mediaReady) return;
         var pos = Player.Position.TotalSeconds;
-        if (_playing && TrimOn && _trimEnd > 0 && pos >= _trimEnd)
+        if (TrimOn && _trimEnd > 0)
         {
-            PausePlayback();
-            Player.Position = TimeSpan.FromSeconds(_trimEnd);
-            pos = _trimEnd;
+            if (_playing && pos >= _trimEnd)
+            {
+                PausePlayback();
+                Player.Position = TimeSpan.FromSeconds(_trimEnd);
+                pos = _trimEnd;
+            }
+            else if (pos < _trimStart - 0.25 || pos > _trimEnd + 0.25)
+            {
+                pos = Math.Min(Math.Max(pos, _trimStart), _trimEnd);
+                Player.Position = TimeSpan.FromSeconds(pos);
+            }
         }
         TrimBar.Position = pos;
         UpdateTimeLabel(pos);
@@ -874,6 +918,8 @@ public partial class MainWindow : Window
         TrimBar.RangeEnabled = on;
         TrimFields.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
         UpdateTrimFields();
+        RefreshParts();
+        ClampPlayhead();
         UpdateState();
     }
 
@@ -906,6 +952,7 @@ public partial class MainWindow : Window
             ClearError();
         }
         UpdateTrimFields();
+        ClampPlayhead();
         UpdateState();
     }
 
@@ -923,6 +970,7 @@ public partial class MainWindow : Window
         if (_trimEnd <= 0) _trimEnd = _duration;
         if (pos < _trimEnd - 0.2) _trimStart = pos;
         UpdateTrimFields();
+        ClampPlayhead();
     }
 
     void SetEnd_Click(object sender, RoutedEventArgs e)
@@ -930,6 +978,124 @@ public partial class MainWindow : Window
         var pos = CurrentPosition;
         if (pos > _trimStart + 0.2) _trimEnd = Math.Min(pos, _duration > 0 ? _duration : pos);
         UpdateTrimFields();
+        ClampPlayhead();
+    }
+
+    // ------------------------------------------------------------------ several parts
+
+    void AddPart_Click(object sender, RoutedEventArgs e)
+    {
+        if (!TrimOn || _duration <= 0) return;
+        var end = _trimEnd > 0 ? _trimEnd : _duration;
+        if (end - _trimStart < 0.2) { ShowMessage("Pick a range first.", true); return; }
+        if (_parts.Count >= 20) { ShowMessage("That's the most parts Grab can join (20).", true); return; }
+        ClearError();
+        _parts.Add(new Segment { Start = _trimStart, End = end });
+        RefreshParts();
+        UpdateState();
+    }
+
+    void ClearParts_Click(object sender, RoutedEventArgs e)
+    {
+        _parts.Clear();
+        RefreshParts();
+        UpdateState();
+    }
+
+    void RefreshParts()
+    {
+        PartsPanel.Children.Clear();
+        TrimBar.SetParts(TrimOn ? _parts : null);
+        PartsBox.Visibility = TrimOn && _parts.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        if (!TrimOn) return;
+
+        for (var i = 0; i < _parts.Count; i++)
+        {
+            var part = _parts[i];
+            var row = new StackPanel { Orientation = Orientation.Horizontal };
+            row.Children.Add(new TextBlock
+            {
+                Text = (i + 1) + "   " + Fmt.TimeTenths(part.Start) + " – " + Fmt.TimeTenths(part.End),
+                FontSize = 12.5,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 6, 0),
+            });
+            var remove = new Button
+            {
+                Content = "\uE711",
+                FontFamily = (FontFamily)FindResource("IconFont"),
+                FontSize = 10,
+                Width = 22,
+                Height = 22,
+                Padding = new Thickness(0),
+                Style = (Style)FindResource("GhostButton"),
+                ToolTip = "Remove this part",
+            };
+            remove.Click += (s, e) =>
+            {
+                _parts.Remove(part);
+                RefreshParts();
+                UpdateState();
+            };
+            row.Children.Add(remove);
+
+            PartsPanel.Children.Add(new Border
+            {
+                Child = row,
+                Background = (Brush)FindResource("Panel2Brush"),
+                BorderBrush = (Brush)FindResource("LineBrush"),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(10, 3, 4, 3),
+                Margin = new Thickness(0, 0, 6, 6),
+            });
+        }
+    }
+
+    // ------------------------------------------------------------------ screenshot
+
+    async void Screenshot_Click(object sender, RoutedEventArgs e)
+    {
+        if (_shotBusy) return;
+        var link = _source == SourceKind.Link;
+        if (link ? _info == null : string.IsNullOrEmpty(_localPath)) return;
+
+        _shotBusy = true;
+        var second = CurrentPosition;
+        try
+        {
+            ShowMessage("Saving screenshot…", false);
+            string input;
+            if (!link)
+            {
+                input = _localPath;
+            }
+            else
+            {
+                input = await YtDlp.GetVideoUrlAsync(CleanInput(UrlBox.Text), _height, CookieSpec);
+                if (string.IsNullOrEmpty(input) && File.Exists(_previewSource)) input = _previewSource;   // lower quality fallback
+            }
+            if (string.IsNullOrEmpty(input))
+            {
+                ShowMessage("Couldn't get a frame from this video.", true);
+                return;
+            }
+
+            var result = await Screenshots.CaptureAsync(input, second, SettingsStore.Current.Dir, TitleText.Text);
+            if (!string.IsNullOrEmpty(result.Error))
+            {
+                ShowMessage(result.Error, true);
+            }
+            else
+            {
+                _lastFile = result.File;
+                ShowMessage("Screenshot saved: " + Path.GetFileName(result.File), false);
+            }
+        }
+        finally
+        {
+            _shotBusy = false;
+        }
     }
 
     void Window_PreviewKeyDown(object sender, KeyEventArgs e)
@@ -949,6 +1115,10 @@ public partial class MainWindow : Window
 
         switch (e.Key)
         {
+            case Key.S:
+                Screenshot_Click(this, e);
+                e.Handled = true;
+                break;
             case Key.F:
                 SetFullscreen(!_full);
                 e.Handled = true;
@@ -1100,11 +1270,10 @@ public partial class MainWindow : Window
 
         var show = on ? Visibility.Collapsed : Visibility.Visible;
         TopBar.Visibility = show;
-        FooterBar.Visibility = show;
         RightPanel.Visibility = show;
         ColSpacer.Width = new GridLength(on ? 0 : 16);
         ColRight.Width = new GridLength(on ? 0 : 360);
-        MainGrid.Margin = on ? new Thickness(0) : new Thickness(20, 0, 20, 0);
+        MainGrid.Margin = on ? new Thickness(0) : new Thickness(20, 0, 20, 16);
         InfoPanel.Visibility = !on && (_info != null || !string.IsNullOrEmpty(_localPath)) ? Visibility.Visible : Visibility.Collapsed;
         BtnFullscreen.Content = on ? "\uE73F" : "\uE740";
         BtnFullscreen.ToolTip = on ? "Exit full screen (Esc)" : "Full screen (F)";
@@ -1118,12 +1287,31 @@ public partial class MainWindow : Window
         ClearError();
 
         var cfg = SettingsStore.Current;
-        var trim = TrimOn && _duration > 0 && _trimEnd - _trimStart >= 0.2;
-        var start = trim ? _trimStart : 0;
-        var end = trim ? _trimEnd : 0;
-        if (trim && _duration > 0 && end >= _duration - 0.05) end = 0;       // until the very end
-        if (trim && start <= 0.05 && end == 0) trim = false;                  // whole video, nothing to cut
         var gain = VolSlider.Value / 100.0;
+
+        // what to keep: several joined parts, one range, or everything
+        var segments = new List<Segment>();
+        var trim = false;
+        double start = 0, end = 0;
+        if (TrimOn && _duration > 0 && _parts.Count >= 2)
+        {
+            foreach (var part in _parts) segments.Add(new Segment { Start = part.Start, End = part.End });
+        }
+        else if (TrimOn && _duration > 0 && (_parts.Count == 1 || _trimEnd - _trimStart >= 0.2))
+        {
+            start = _parts.Count == 1 ? _parts[0].Start : _trimStart;
+            end = _parts.Count == 1 ? _parts[0].End : _trimEnd;
+            trim = true;
+            if (end >= _duration - 0.05) end = 0;                 // until the very end
+            if (start <= 0.05 && end == 0) trim = false;          // whole video, nothing to cut
+        }
+
+        var disk = CheckDisk(segments, trim, start, end);
+        if (!string.IsNullOrEmpty(disk))
+        {
+            ShowMessage(disk, true);
+            return;
+        }
 
         SetBusy(true);
         JobResult result;
@@ -1143,6 +1331,7 @@ public partial class MainWindow : Window
                     AudioFormat = cfg.AudioFormat,
                     Bitrate = cfg.AudioBitrate,
                     Trim = trim,
+                    Segments = segments,
                     TrimStart = start,
                     TrimEnd = end,
                     Gain = gain,
@@ -1164,6 +1353,7 @@ public partial class MainWindow : Window
                     AudioFormat = cfg.AudioFormat,
                     Bitrate = cfg.AudioBitrate,
                     Trim = trim,
+                    Segments = segments,
                     TrimStart = start,
                     TrimEnd = end,
                     Gain = gain,
@@ -1198,6 +1388,44 @@ public partial class MainWindow : Window
         {
             ShowMessage(result.Error, true);
         }
+    }
+
+    /// <summary>Checks there is room for the result before anything is downloaded.</summary>
+    string CheckDisk(List<Segment> segments, bool trim, double start, double end)
+    {
+        var cfg = SettingsStore.Current;
+        const double margin = 300000000.0;
+        double keepSeconds = _duration;
+        if (segments.Count >= 2) keepSeconds = segments.Sum(x => x.Length);
+        else if (trim) keepSeconds = (end > 0 ? end : _duration) - start;
+        var ratio = _duration > 0 ? Math.Min(1.0, Math.Max(0.0, keepSeconds / _duration)) : 1.0;
+
+        if (_source == SourceKind.Link)
+        {
+            double estimate;
+            if (IsAudio)
+            {
+                estimate = _duration > 0 ? keepSeconds * 45000.0 : 0;      // about 360 kbps at most
+            }
+            else
+            {
+                var size = _info?.Resolutions.FirstOrDefault(x => x.Height == _height)?.Size ?? 0;
+                estimate = size * ratio;
+            }
+
+            // the file is built in the temp folder first (video and audio side by side, then merged)...
+            var tempProblem = DiskSpace.Check(AppPaths.TempDir, estimate * 2 + margin);
+            if (!string.IsNullOrEmpty(tempProblem)) return tempProblem;
+
+            // ...and then moved to the save folder
+            if (!string.Equals(DiskSpace.DriveName(AppPaths.TempDir), DiskSpace.DriveName(cfg.Dir), StringComparison.OrdinalIgnoreCase))
+                return DiskSpace.Check(cfg.Dir, estimate + margin);
+            return "";
+        }
+
+        double fileSize = 0;
+        try { fileSize = new FileInfo(_localPath).Length; } catch { }
+        return DiskSpace.Check(cfg.Dir, fileSize * ratio * 1.5 + margin);
     }
 
     void OnProgress(ProgressInfo p)
@@ -1374,4 +1602,8 @@ public partial class MainWindow : Window
     }
 
     void OpenAppFolder_Click(object sender, RoutedEventArgs e) => Win.Open(AppPaths.BaseDir);
+
+    void GitHub_Click(object sender, RoutedEventArgs e) => Win.Open(AppInfo.RepoUrl);
+
+    void Issues_Click(object sender, RoutedEventArgs e) => Win.Open(AppInfo.IssuesUrl);
 }

@@ -15,7 +15,6 @@
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
-                <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
             <!-- Top bar: brand, one box for everything, settings -->
@@ -86,7 +85,7 @@
             <TextBlock x:Name="ErrorText" Grid.Row="1" FontSize="12.5" Margin="26,0,26,10" TextWrapping="Wrap" Visibility="Collapsed"/>
 
             <!-- Main content -->
-            <Grid x:Name="MainGrid" Grid.Row="2" Margin="20,0,20,0">
+            <Grid x:Name="MainGrid" Grid.Row="2" Margin="20,0,20,16">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition x:Name="ColSpacer" Width="16"/>
@@ -185,6 +184,9 @@
                                 <TextBlock x:Name="TimeText" Grid.Column="1" Text="0:00 / 0:00" Margin="10,0,0,0" FontSize="12.5"
                                            VerticalAlignment="Center" Typography.NumeralAlignment="Tabular"/>
                                 <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <Button x:Name="BtnShot" Content="&#xE722;" Style="{StaticResource IconButton}"
+                                            Width="28" Height="28" FontSize="13"
+                                            ToolTip="Save a screenshot of this frame (S)" Click="Screenshot_Click"/>
                                     <Button x:Name="BtnPreviewMute" Content="&#xE767;" Style="{StaticResource IconButton}"
                                             Width="28" Height="28" FontSize="13"
                                             ToolTip="Mute the player" Click="PreviewMute_Click"/>
@@ -210,21 +212,34 @@
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Text="Start" Style="{StaticResource Muted}" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                <TextBox x:Name="StartBox" Grid.Column="1" Width="84" Height="32" FontSize="13" TextAlignment="Center"
+                                <TextBox x:Name="StartBox" Grid.Column="1" Width="90" Height="32" FontSize="13" Padding="10,0"
                                          LostFocus="TrimBox_Commit" KeyDown="TrimBox_KeyDown"/>
                                 <Button x:Name="BtnSetStart" Grid.Column="2" Content="Set here" Style="{StaticResource SmallButton}"
                                         Margin="6,0,18,0" ToolTip="Use the playhead position  ( [ )" Click="SetStart_Click"/>
                                 <TextBlock Grid.Column="3" Text="End" Style="{StaticResource Muted}" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                <TextBox x:Name="EndBox" Grid.Column="4" Width="84" Height="32" FontSize="13" TextAlignment="Center"
+                                <TextBox x:Name="EndBox" Grid.Column="4" Width="90" Height="32" FontSize="13" Padding="10,0"
                                          LostFocus="TrimBox_Commit" KeyDown="TrimBox_KeyDown"/>
                                 <Button x:Name="BtnSetEnd" Grid.Column="5" Content="Set here" Style="{StaticResource SmallButton}"
                                         Margin="6,0,0,0" ToolTip="Use the playhead position  ( ] )" Click="SetEnd_Click"/>
+                                <Button x:Name="BtnAddPart" Grid.Column="6" Content="+ Add part" Style="{StaticResource SmallButton}"
+                                        HorizontalAlignment="Left" Margin="18,0,0,0"
+                                        ToolTip="Keep this range and pick another one. All kept parts are joined in the order you add them."
+                                        Click="AddPart_Click"/>
                                 <StackPanel Grid.Column="7" Orientation="Horizontal" VerticalAlignment="Center">
                                     <TextBlock Text="Length" Style="{StaticResource Muted}" VerticalAlignment="Center" Margin="0,0,8,0"/>
                                     <TextBlock x:Name="LengthText" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center"
                                                Foreground="{StaticResource AccentLightBrush}"/>
                                 </StackPanel>
                             </Grid>
+
+                            <StackPanel x:Name="PartsBox" Margin="0,8,0,0" Visibility="Collapsed">
+                                <Grid>
+                                    <TextBlock Text="KEPT PARTS (JOINED IN THIS ORDER)" Style="{StaticResource SectionLabel}" Margin="0,0,0,6"/>
+                                    <Button Content="Clear" Style="{StaticResource GhostButton}" Padding="8,0" FontSize="11.5"
+                                            HorizontalAlignment="Right" Margin="0,-6,-8,0" Click="ClearParts_Click"/>
+                                </Grid>
+                                <WrapPanel x:Name="PartsPanel"/>
+                            </StackPanel>
                         </StackPanel>
                     </Border>
                 </Grid>
@@ -314,7 +329,7 @@
                                                 TickFrequency="1" IsSnapToTickEnabled="True" Style="{StaticResource GrabSlider}"
                                                 VerticalAlignment="Center" ValueChanged="VolSlider_ValueChanged"/>
                                         <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="14,0,0,0" VerticalAlignment="Center">
-                                            <TextBox x:Name="VolBox" Width="52" Height="32" Text="100" TextAlignment="Center"
+                                            <TextBox x:Name="VolBox" Width="72" Height="34" Text="100" FontSize="14" Padding="12,0"
                                                      LostFocus="VolBox_Commit" KeyDown="VolBox_KeyDown"/>
                                             <TextBlock Text="%" Style="{StaticResource Muted}" Margin="6,0,0,0" VerticalAlignment="Center"/>
                                         </StackPanel>
@@ -362,16 +377,16 @@
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
-                                <Border x:Name="ProgTrack" Height="48" CornerRadius="12" Background="{StaticResource Panel2Brush}"
+                                <Border x:Name="ProgTrack" Height="56" CornerRadius="12" Background="{StaticResource Panel2Brush}"
                                         BorderBrush="{StaticResource LineBrush}" BorderThickness="1" SizeChanged="ProgTrack_SizeChanged">
                                     <Grid>
                                         <Border x:Name="ProgFill" HorizontalAlignment="Left" Width="0" CornerRadius="11"
                                                 Background="{StaticResource AccentSoftBrush}"/>
-                                        <Grid Margin="14,0">
-                                            <TextBlock x:Name="ProgText" Text="Starting…" VerticalAlignment="Center" FontWeight="Medium"/>
-                                            <TextBlock x:Name="ProgInfo" HorizontalAlignment="Right" VerticalAlignment="Center"
-                                                       Style="{StaticResource Muted}"/>
-                                        </Grid>
+                                        <StackPanel Margin="14,0" VerticalAlignment="Center">
+                                            <TextBlock x:Name="ProgText" Text="Starting…" FontWeight="Medium" TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock x:Name="ProgInfo" Style="{StaticResource Muted}" FontSize="11.5" Margin="0,2,0,0"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                        </StackPanel>
                                     </Grid>
                                 </Border>
                                 <Button x:Name="BtnCancel" Grid.Column="1" Content="Cancel" Margin="10,0,0,0" Padding="18,0"
@@ -404,12 +419,6 @@
                 </Border>
             </Grid>
 
-            <!-- Footer -->
-            <Grid x:Name="FooterBar" Grid.Row="3" Margin="26,8,26,8">
-                <TextBlock x:Name="FooterLeft" Style="{StaticResource Muted}" FontSize="11.5"/>
-                <TextBlock x:Name="FooterRight" Style="{StaticResource Muted}" FontSize="11.5" HorizontalAlignment="Right"
-                           Text="Space play · F full screen · [ ] set start/end · ← → seek"/>
-            </Grid>
         </Grid>
 
         <!-- Settings overlay -->
@@ -497,16 +506,49 @@
                         <TextBlock Text="If downloads stop working because a site changed, updating yt-dlp usually fixes it."
                                    Style="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,8,0,0"/>
 
-                        <Border Height="1" Background="{StaticResource LineSoftBrush}" Margin="0,20,0,14"/>
+                        <TextBlock Text="SHORTCUTS" Style="{StaticResource SectionLabel}" Margin="0,22,0,8"/>
                         <Grid>
-                            <TextBlock x:Name="AboutText" Style="{StaticResource Muted}" VerticalAlignment="Center"/>
-                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                                <Button Content="Open last log" Style="{StaticResource SmallButton}" Click="OpenLog_Click"
-                                        ToolTip="Shows what yt-dlp / ffmpeg printed during the last run"/>
-                                <Button Content="Open app folder" Style="{StaticResource SmallButton}" Margin="6,0,0,0"
-                                        Click="OpenAppFolder_Click"/>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Margin="0,0,18,0">
+                                <TextBlock Text="Space"/><TextBlock Text="F"/><TextBlock Text="S"/><TextBlock Text="← →"/>
+                                <TextBlock Text="[   ]"/><TextBlock Text="Esc"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1">
+                                <TextBlock Text="Play / pause" Style="{StaticResource Muted}" FontSize="13"/>
+                                <TextBlock Text="Full screen" Style="{StaticResource Muted}" FontSize="13"/>
+                                <TextBlock Text="Save a screenshot of the current frame" Style="{StaticResource Muted}" FontSize="13"/>
+                                <TextBlock Text="Seek 1 second (hold Shift for 5)" Style="{StaticResource Muted}" FontSize="13"/>
+                                <TextBlock Text="Set the trim start / end at the playhead" Style="{StaticResource Muted}" FontSize="13"/>
+                                <TextBlock Text="Leave full screen or close this window" Style="{StaticResource Muted}" FontSize="13"/>
                             </StackPanel>
                         </Grid>
+
+                        <Border Height="1" Background="{StaticResource LineSoftBrush}" Margin="0,22,0,16"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Image Source="Assets/logo.png" Width="40" Height="40" RenderOptions.BitmapScalingMode="HighQuality"/>
+                            <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center">
+                                <TextBlock Text="Grab" FontWeight="Bold" FontSize="14"/>
+                                <TextBlock x:Name="AboutText" Style="{StaticResource Muted}"/>
+                            </StackPanel>
+                        </Grid>
+                        <WrapPanel Margin="0,14,0,0">
+                            <Button Content="GitHub" Style="{StaticResource SmallButton}" Margin="0,0,6,6"
+                                    ToolTip="Open the project page" Click="GitHub_Click"/>
+                            <Button Content="Report a problem" Style="{StaticResource SmallButton}" Margin="0,0,6,6"
+                                    Click="Issues_Click"/>
+                            <Button Content="Open last log" Style="{StaticResource SmallButton}" Margin="0,0,6,6" Click="OpenLog_Click"
+                                    ToolTip="Shows what yt-dlp / ffmpeg printed during the last run"/>
+                            <Button Content="Open app folder" Style="{StaticResource SmallButton}" Margin="0,0,0,6"
+                                    Click="OpenAppFolder_Click"/>
+                        </WrapPanel>
+                        <TextBlock Text="Open source, MIT License. Powered by yt-dlp and FFmpeg." Style="{StaticResource Muted}" Margin="0,4,0,0"/>
                     </StackPanel>
                 </ScrollViewer>
             </Border>

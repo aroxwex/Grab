@@ -45,6 +45,9 @@ public static class YtDlp
         var low = e.ToLowerInvariant();
         var table = new (string Key, string Msg)[]
         {
+            ("no space left", "Your disk is full. Free up some space and try again."),
+            ("not enough space", "Your disk is full. Free up some space and try again."),
+            ("errno 28", "Your disk is full. Free up some space and try again."),
             ("dpapi", "Couldn't read cookies from that browser. Chrome, Edge and Brave often block this. Use Firefox or a cookies.txt file in Settings, or turn cookies off."),
             ("failed to decrypt", "Couldn't read cookies from that browser. Use Firefox or a cookies.txt file in Settings, or turn cookies off."),
             ("could not copy", "Couldn't read browser cookies. Close the browser and try again, or turn cookies off in Settings."),
@@ -92,6 +95,33 @@ public static class YtDlp
             return lines.Length > 0 ? lines[lines.Length - 1] : "Done.";
         }
         catch (Exception ex) { return ex.Message; }
+    }
+
+    /// <summary>Direct URL of the video stream (no sound needed), used to grab a single frame.</summary>
+    public static async Task<string> GetVideoUrlAsync(string url, int height, string cookieSpec)
+    {
+        var exe = Tools.Find("yt-dlp");
+        if (exe == null) return "";
+        foreach (var spec in string.IsNullOrEmpty(cookieSpec) ? new[] { "" } : new[] { cookieSpec, "" })
+        {
+            var args = new List<string>
+            {
+                "-g", "--no-playlist", "--no-warnings",
+                "-f", "bv*[height<=" + height + "]/b[height<=" + height + "]/b",
+            };
+            AddCookies(args, spec);
+            args.Add(url);
+            try
+            {
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+                var r = await Proc.RunAsync(exe, args, cts.Token);
+                if (r.Code != 0) continue;
+                foreach (var line in r.Out.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                    if (line.StartsWith("http")) return line;
+            }
+            catch { }
+        }
+        return "";
     }
 
     // ---------------------------------------------------------------- search

@@ -20,7 +20,7 @@ public class TrimTimeline : FrameworkElement
     static readonly Brush FillBrush = Make("#3A3A3A");
     static readonly Brush HandleBrush = Make("#EDEDED");
     static readonly Brush GripBrush = Make("#111111");
-    static readonly Brush PlayheadBrush = Make("#7CB0FF");
+    static readonly Brush PlayheadBrush = Make("#FFFFFF");
     static readonly Brush LabelBrush = Make("#111111");
 
     static Brush Make(string hex)
@@ -29,6 +29,9 @@ public class TrimTimeline : FrameworkElement
         b.Freeze();
         return b;
     }
+
+    static readonly Brush PartBrush = Make("#6E6E6E");
+    readonly List<Segment> _parts = new List<Segment>();
 
     double _duration;
     double _start;
@@ -45,6 +48,14 @@ public class TrimTimeline : FrameworkElement
         Focusable = false;
         Cursor = Cursors.Hand;
         SnapsToDevicePixels = true;
+    }
+
+    /// <summary>Parts that are already kept (drawn as grey blocks).</summary>
+    public void SetParts(IEnumerable<Segment> parts)
+    {
+        _parts.Clear();
+        if (parts != null) _parts.AddRange(parts);
+        InvalidateVisual();
     }
 
     public double Duration
@@ -107,6 +118,12 @@ public class TrimTimeline : FrameworkElement
 
         if (_duration > 0 && _rangeEnabled)
         {
+            foreach (var part in _parts)
+            {
+                double px1 = X(part.Start), px2 = X(part.End);
+                if (px2 > px1) dc.DrawRoundedRectangle(PartBrush, null, new Rect(px1, trackY - 3, px2 - px1, trackH + 6), 4, 4);
+            }
+
             double xs = X(_start), xe = X(Math.Min(_end > 0 ? _end : _duration, _duration));
             if (xe < xs) xe = xs;
 

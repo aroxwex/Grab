@@ -10,6 +10,12 @@
     <RootNamespace>Grab</RootNamespace>
     <Product>Grab</Product>
     <Version>1.0.0</Version>
+    <Authors>aroxwex</Authors>
+    <Company>aroxwex</Company>
+    <Description>Grab - download, trim and convert video and audio.</Description>
+    <Copyright>Copyright (c) 2026 aroxwex</Copyright>
+    <RepositoryUrl>https://github.com/aroxwex/Grab</RepositoryUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <DebugType>none</DebugType>
     <ApplicationIcon>Assets\icon.ico</ApplicationIcon>

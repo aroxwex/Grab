@@ -2,6 +2,21 @@ using System.Collections.Generic;
 
 namespace Grab;
 
+public static class AppInfo
+{
+    public const string Name = "Grab";
+    public const string RepoUrl = "https://github.com/aroxwex/Grab";
+    public const string IssuesUrl = "https://github.com/aroxwex/Grab/issues";
+}
+
+/// <summary>One kept part of a video (seconds).</summary>
+public class Segment
+{
+    public double Start;
+    public double End;
+    public double Length => End - Start;
+}
+
 public class ResOption
 {
     public int Height;
@@ -50,6 +65,7 @@ public class DownloadRequest
     public bool Trim;
     public double TrimStart;
     public double TrimEnd;       // 0 = until the end
+    public List<Segment> Segments = new List<Segment>();   // 2 or more parts that get joined (overrides Trim)
     public double Gain = 1.0;                // 1.0 = original volume, 0 = silent, 2.0 = double
     public bool Silent => !Audio && Gain <= 0.001;
     public bool NeedsGain => !Silent && Math.Abs(Gain - 1.0) > 0.01;
@@ -68,6 +84,7 @@ public class LocalRequest
     public bool Trim;
     public double TrimStart;
     public double TrimEnd;       // 0 = until the end
+    public List<Segment> Segments = new List<Segment>();   // 2 or more parts that get joined (overrides Trim)
     public double Gain = 1.0;                // 1.0 = original volume, 0 = silent, 2.0 = double
     public bool Silent => !Audio && Gain <= 0.001;
     public bool NeedsGain => !Silent && Math.Abs(Gain - 1.0) > 0.01;
