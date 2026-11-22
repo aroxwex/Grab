@@ -41,7 +41,8 @@ public class VideoInfo
     public double Duration;
     public string Thumb = "";
     public List<ResOption> Resolutions = new List<ResOption>();
-    public bool CookiesSkipped;   // cookies couldn't be read, info was fetched without them
+    public bool CookiesSkipped;
+    public bool CompatMode;       // fetched with a different YouTube client because the normal one was blocked   // cookies couldn't be read, info was fetched without them
 }
 
 public class SearchResult

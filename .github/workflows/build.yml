@@ -25,7 +25,7 @@ jobs:
           -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
           -p:EnableCompressionInSingleFile=true -o dist/Grab
 
-      - name: Download yt-dlp and ffmpeg
+      - name: Download yt-dlp, ffmpeg and deno
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist/Grab/bin | Out-Null
@@ -34,6 +34,10 @@ jobs:
           Expand-Archive ffmpeg.zip -DestinationPath ffmpeg-tmp
           Copy-Item ffmpeg-tmp/*/bin/ffmpeg.exe dist/Grab/bin/
           Copy-Item ffmpeg-tmp/*/bin/ffprobe.exe dist/Grab/bin/
+          # yt-dlp needs a JavaScript runtime to solve YouTube's checks
+          Invoke-WebRequest "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip" -OutFile deno.zip
+          Expand-Archive deno.zip -DestinationPath deno-tmp
+          Copy-Item deno-tmp/deno.exe dist/Grab/bin/
 
       # The artifact is "dist", so the downloaded zip contains the Grab folder:
       #   Grab/Grab.exe

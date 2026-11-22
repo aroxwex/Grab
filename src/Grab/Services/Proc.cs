@@ -13,6 +13,7 @@ public static class Proc
             StandardOutputEncoding = Encoding.UTF8,
             StandardErrorEncoding = Encoding.UTF8,
         };
+        psi.Environment["PATH"] = AppPaths.BinDir + Path.PathSeparator + (Environment.GetEnvironmentVariable("PATH") ?? "");
         psi.Environment["PYTHONUNBUFFERED"] = "1";
         psi.Environment["PYTHONIOENCODING"] = "utf-8";
         foreach (var a in args) psi.ArgumentList.Add(a);

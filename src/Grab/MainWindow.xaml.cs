@@ -39,6 +39,7 @@ public partial class MainWindow : Window
     bool _cookiesBroken;     // cookies failed once, so skip them from now on
     double? _progress;
     bool _shotBusy;
+    Task _engineTask;
     readonly List<Segment> _parts = new List<Segment>();
     bool _full;
     bool _volSync;
@@ -104,15 +105,47 @@ public partial class MainWindow : Window
 
         var yt = Tools.Find("yt-dlp");
         var ff = Tools.Find("ffmpeg");
+        var deno = Tools.Find("deno");
         var ver = yt != null ? await YtDlp.VersionAsync() : "";
 
         YtVersionText.Text = yt == null ? "yt-dlp not found" : "yt-dlp " + ver;
-        FfmpegText.Text = ff == null ? "ffmpeg not found" : "ffmpeg ready";
+        FfmpegText.Text = (ff == null ? "ffmpeg not found" : "ffmpeg ready") + "   ·   " + (deno == null ? "deno not found" : "deno ready");
 
         if (yt == null)
             ShowMessage("yt-dlp not found. Put yt-dlp.exe in the bin folder next to Grab.exe.", true);
         else if (ff == null)
             ShowMessage("ffmpeg not found: merging, MP3 and trimming won't work. Put ffmpeg.exe and ffprobe.exe in the bin folder.", true);
+        else if (deno == null)
+            ShowMessage("deno.exe not found in the bin folder. YouTube needs it, so YouTube downloads may fail.", true);
+
+        if (yt != null) _engineTask = AutoUpdateEngineAsync();
+    }
+
+    /// <summary>YouTube changes often, so yt-dlp checks for a newer version once a day (can be turned off).</summary>
+    async Task AutoUpdateEngineAsync()
+    {
+        var cfg = SettingsStore.Current;
+        if (!cfg.AutoUpdateEngine) return;
+        var last = new DateTime(Math.Max(0, cfg.LastEngineCheck));
+        if (cfg.LastEngineCheck > 0 && DateTime.Now - last < TimeSpan.FromHours(24)) return;
+
+        await YtDlp.UpdateAsync();
+        cfg.LastEngineCheck = DateTime.Now.Ticks;
+        SettingsStore.Save();
+        var ver = await YtDlp.VersionAsync();
+        if (!string.IsNullOrEmpty(ver)) YtVersionText.Text = "yt-dlp " + ver;
+    }
+
+    /// <summary>Wait for a running engine update so a download never starts halfway through one.</summary>
+    async Task WaitForEngineAsync()
+    {
+        var task = _engineTask;
+        if (task != null && !task.IsCompleted)
+        {
+            SetHint("Updating the download engine…");
+            try { await task; } catch { }
+            SetHint("");
+        }
     }
 
     void ApplySettingsToUi()
@@ -126,6 +159,7 @@ public partial class MainWindow : Window
         DirText.Text = c.Dir;
         RefreshCookiesFileText();
         AutoPreviewSwitch.IsChecked = c.AutoPreview;
+        AutoUpdateSwitch.IsChecked = c.AutoUpdateEngine;
         RefreshTempText();
     }
 
@@ -358,6 +392,7 @@ public partial class MainWindow : Window
 
     async Task SearchAsync(string query)
     {
+        await WaitForEngineAsync();
         ClearError();
         ResetPreview();
         var token = _fetchToken;
@@ -476,6 +511,7 @@ public partial class MainWindow : Window
         var url = CleanInput(UrlBox.Text);
         if (!IsUrl(url)) return;
 
+        await WaitForEngineAsync();
         ClearError();
         ResetPreview();
         _source = SourceKind.Link;
@@ -499,6 +535,10 @@ public partial class MainWindow : Window
             _cookiesBroken = true;
             spec = "";
             ShowMessage("Your browser cookies couldn't be read, so Grab is continuing without them.", false);
+        }
+        else if (result.Info.CompatMode)
+        {
+            ShowMessage("YouTube blocked the normal way, so Grab is using a compatibility mode. Some resolutions may be missing.", false);
         }
 
         _info = result.Info;
@@ -1284,6 +1324,7 @@ public partial class MainWindow : Window
     async void Go_Click(object sender, RoutedEventArgs e)
     {
         if (_busy) return;
+        await WaitForEngineAsync();
         ClearError();
 
         var cfg = SettingsStore.Current;
@@ -1527,6 +1568,12 @@ public partial class MainWindow : Window
     void AutoPreview_Click(object sender, RoutedEventArgs e)
     {
         SettingsStore.Current.AutoPreview = AutoPreviewSwitch.IsChecked == true;
+        SettingsStore.Save();
+    }
+
+    void AutoUpdate_Click(object sender, RoutedEventArgs e)
+    {
+        SettingsStore.Current.AutoUpdateEngine = AutoUpdateSwitch.IsChecked == true;
         SettingsStore.Save();
     }
 

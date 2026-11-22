@@ -40,7 +40,7 @@
    ```
    Grab/
    ├─ Grab.exe
-   ├─ bin/      yt-dlp.exe, ffmpeg.exe, ffprobe.exe
+   ├─ bin/      yt-dlp.exe, ffmpeg.exe, ffprobe.exe, deno.exe
    └─ data/     your settings and the last log (created on first launch)
    ```
 3. Run `Grab.exe`. There is nothing to install, and you don't need to install .NET.
@@ -80,14 +80,16 @@ To update, extract the new version over the old one and keep your `data` folder.
   Leave it off otherwise. Firefox or a `cookies.txt` file works best, Chrome / Edge / Brave are often blocked.
   To use a `cookies.txt` file, sign in to the site in your browser, export your cookies to a `.txt` file with a "cookies.txt" browser extension
   and choose the file in Settings. Treat that file like a saved login and keep it private.
-- **Download engine:** update yt-dlp with one click. Do this if downloads suddenly stop working.
-- **Open last log:** shows what yt-dlp / ffmpeg printed during the last run. Please attach it when you report a problem.
+- **Download engine:** yt-dlp is checked for a newer version once a day (you can turn that off) and you can update it with one click.
+  `deno.exe` is a small helper YouTube needs; it lives in the `bin` folder.
+- **Open last log:** shows what yt-dlp / ffmpeg printed during the last run. Please attach it when you report a problem on GitHub.
 
 ## Troubleshooting
 
 | Problem | What to try |
 | --- | --- |
 | Downloads stopped working | Settings > **Update yt-dlp**. Sites change often. |
+| "YouTube is asking Grab to prove it isn't a bot" | Make sure `bin/deno.exe` exists and update yt-dlp. If it still happens, YouTube is rate-limiting your connection: use **Firefox** cookies or a `cookies.txt` file from a browser where you're signed in. Waiting a while or switching network (VPN off / on) can also help. |
 | "Failed to decrypt with DPAPI" | Chrome / Edge / Brave cookies can't be read. Set cookies to **Off**, use **Firefox**, or choose a `cookies.txt` file. Grab also retries without cookies by itself. |
 | The player doesn't load | Check your connection and press **Load player**. You can still trim by typing the start and end times. |
 | Trimmed downloads take long | Grab asks the site for only the part you picked. Long, high-resolution videos can still take a while. The timer shows it is working. |
@@ -102,8 +104,8 @@ Requires the .NET 8 SDK on Windows.
 dotnet publish src/Grab/Grab.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o dist/Grab
 ```
 
-Then put `yt-dlp.exe`, `ffmpeg.exe` and `ffprobe.exe` into `dist/Grab/bin`.
-For development you can also just run `dotnet run --project src/Grab` with those three files on your `PATH`.
+Then put `yt-dlp.exe`, `ffmpeg.exe`, `ffprobe.exe` and `deno.exe` into `dist/Grab/bin`.
+For development you can also just run `dotnet run --project src/Grab` with those programs on your `PATH`.
 
 The **Build Grab** workflow in `.github/workflows` does all of this on GitHub: run it manually, or push a tag like `v1.0.0` to publish a release.
 
@@ -116,10 +118,17 @@ src/Grab/
 └─ MainWindow    the app window
 ```
 
-## Credits
+## Credits and licenses
 
-Grab is a friendly face for two great projects: [yt-dlp](https://github.com/yt-dlp/yt-dlp) and [FFmpeg](https://ffmpeg.org/).
-See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+Grab is a friendly face for other people's great work. It ships these programs, unmodified, in `bin` and starts them as separate processes:
+
+| Program | Used for | License |
+| --- | --- | --- |
+| [yt-dlp](https://github.com/yt-dlp/yt-dlp) | Reading video info and downloading | Unlicense |
+| [FFmpeg](https://ffmpeg.org/) | Merging, trimming, converting, volume, screenshots | GPL (the bundled "win64-gpl" build from [BtbN](https://github.com/BtbN/FFmpeg-Builds), source available there) |
+| [Deno](https://deno.com/) | Runs the helper scripts YouTube needs | MIT |
+
+The .NET runtime is bundled too (MIT). Check each project for its current license terms.
 
 ## Disclaimer
 

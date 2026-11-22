@@ -503,8 +503,18 @@
                         </Grid>
                         <TextBlock x:Name="UpdateMsg" Style="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,8,0,0"
                                    Visibility="Collapsed"/>
-                        <TextBlock Text="If downloads stop working because a site changed, updating yt-dlp usually fixes it."
-                                   Style="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,8,0,0"/>
+                        <Grid Margin="0,12,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Margin="0,0,14,0">
+                                <TextBlock Text="Keep yt-dlp up to date" FontWeight="SemiBold"/>
+                                <TextBlock Text="Checks once a day when Grab starts. Sites change often, and an old yt-dlp is the most common reason downloads stop working."
+                                           Style="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,2,0,0"/>
+                            </StackPanel>
+                            <CheckBox x:Name="AutoUpdateSwitch" Grid.Column="1" Style="{StaticResource Switch}" Click="AutoUpdate_Click"/>
+                        </Grid>
 
                         <TextBlock Text="SHORTCUTS" Style="{StaticResource SectionLabel}" Margin="0,22,0,8"/>
                         <Grid>

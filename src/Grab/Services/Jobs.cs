@@ -573,7 +573,7 @@ public static class PreviewMaker
                     "--merge-output-format", "mp4",
                 };
                 if (ff != null) { args.Add("--ffmpeg-location"); args.Add(Path.GetDirectoryName(ff)); }
-                YtDlp.AddCookies(args, spec);
+                YtDlp.AddCommon(args, spec);
                 args.Add(url);
 
                 using var p = Process.Start(Proc.Info(yt, args));

@@ -32,6 +32,37 @@ public static class YtDlp
         else if (spec.StartsWith("browser:")) { args.Add("--cookies-from-browser"); args.Add(spec.Substring(8)); }
     }
 
+    /// <summary>YouTube client to use instead of the default one, set when the default got a bot check.</summary>
+    public static string ClientOverride = "";
+
+    static readonly string[] ClientFallbacks =
+    {
+        "youtube:player_client=tv",
+        "youtube:player_client=web_safari",
+        "youtube:player_client=mweb",
+    };
+
+    /// <summary>Cookies plus the YouTube client choice. (Deno is found through the PATH set in Proc.)</summary>
+    public static void AddCommon(List<string> args, string cookieSpec)
+    {
+        AddCookies(args, cookieSpec);
+        if (!string.IsNullOrEmpty(ClientOverride)) { args.Add("--extractor-args"); args.Add(ClientOverride); }
+    }
+
+    public static bool IsBotCheck(string err)
+    {
+        var low = (err ?? "").ToLowerInvariant();
+        return low.Contains("not a bot") || low.Contains("sign in to confirm");
+    }
+
+    static string BotCheckMessage()
+    {
+        var msg = "YouTube is asking Grab to prove it isn't a bot.";
+        if (Tools.Find("deno") == null) msg += " deno.exe is missing from the bin folder, and YouTube needs it.";
+        msg += " Try Settings > Update yt-dlp. If it keeps happening, use Firefox cookies or a cookies.txt file from a browser where you're signed in to YouTube.";
+        return msg;
+    }
+
     public static bool IsCookieProblem(string err)
     {
         var low = (err ?? "").ToLowerInvariant();
@@ -54,7 +85,8 @@ public static class YtDlp
             ("unsupported url", "This link isn't supported."),
             ("video unavailable", "This video is unavailable (it may be deleted or blocked in your region)."),
             ("private video", "This video is private."),
-            ("sign in to confirm", "The site wants verification. Choose a browser or a cookies file in Settings and try again."),
+            ("sign in to confirm", BotCheckMessage()),
+            ("not a bot", BotCheckMessage()),
             ("sign in", "This video needs a login. Choose a browser or a cookies file in Settings."),
             ("confirm your age", "Age verification is required. Choose a browser or a cookies file in Settings."),
             ("ffmpeg", "ffmpeg not found. Put ffmpeg.exe and ffprobe.exe in the bin folder."),
@@ -109,7 +141,7 @@ public static class YtDlp
                 "-g", "--no-playlist", "--no-warnings",
                 "-f", "bv*[height<=" + height + "]/b[height<=" + height + "]/b",
             };
-            AddCookies(args, spec);
+            AddCommon(args, spec);
             args.Add(url);
             try
             {
@@ -177,21 +209,43 @@ public static class YtDlp
 
     // ---------------------------------------------------------------- info
 
-    /// <summary>Fetches video info. If the cookies can't be read it silently retries without them.</summary>
+    /// <summary>
+    /// Fetches video info. If the cookies can't be read it retries without them, and if YouTube asks for a
+    /// bot check it tries other YouTube clients before giving up.
+    /// </summary>
     public static async Task<(VideoInfo Info, string Error)> GetInfoAsync(string url, string cookieSpec)
     {
-        var first = await GetInfoCoreAsync(url, cookieSpec);
-        if (first.Info == null && !string.IsNullOrEmpty(cookieSpec) && IsCookieProblem(first.Raw))
+        ClientOverride = "";
+        var spec = cookieSpec;
+        var cookiesSkipped = false;
+
+        var r = await GetInfoCoreAsync(url, spec);
+        if (r.Info == null && !string.IsNullOrEmpty(spec) && IsCookieProblem(r.Raw))
         {
-            var second = await GetInfoCoreAsync(url, "");
-            if (second.Info != null)
-            {
-                second.Info.CookiesSkipped = true;
-                return (second.Info, "");
-            }
-            return (null, second.Error);
+            spec = "";
+            cookiesSkipped = true;
+            r = await GetInfoCoreAsync(url, spec);
         }
-        return (first.Info, first.Error);
+
+        if (r.Info == null && IsBotCheck(r.Raw))
+        {
+            foreach (var client in ClientFallbacks)
+            {
+                ClientOverride = client;
+                var t = await GetInfoCoreAsync(url, spec);
+                if (t.Info != null)
+                {
+                    t.Info.CompatMode = true;
+                    r = t;
+                    break;
+                }
+                if (!IsBotCheck(t.Raw)) r = t;      // a different problem: report that one
+            }
+            if (r.Info == null) ClientOverride = "";
+        }
+
+        if (r.Info != null) r.Info.CookiesSkipped = cookiesSkipped;
+        return (r.Info, r.Error);
     }
 
     static async Task<(VideoInfo Info, string Error, string Raw)> GetInfoCoreAsync(string url, string cookieSpec)
@@ -200,7 +254,7 @@ public static class YtDlp
         if (exe == null) return (null, "yt-dlp not found. Put yt-dlp.exe in the bin folder.", "");
 
         var args = new List<string> { "-J", "--no-playlist", "--no-warnings", "--encoding", "utf-8" };
-        AddCookies(args, cookieSpec);
+        AddCommon(args, cookieSpec);
         args.Add(url);
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(90));
@@ -279,7 +333,7 @@ public static class YtDlp
             "-o", Path.Combine(tmpDir, "%(title).120B.%(ext)s"),
         };
         if (!string.IsNullOrEmpty(ffDir)) { a.Add("--ffmpeg-location"); a.Add(ffDir); }
-        AddCookies(a, r.Cookies);
+        AddCommon(a, r.Cookies);
 
         if (r.Audio)
         {
