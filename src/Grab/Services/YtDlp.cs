@@ -42,10 +42,30 @@ public static class YtDlp
         "youtube:player_client=mweb",
     };
 
-    /// <summary>Cookies plus the YouTube client choice. (Deno is found through the PATH set in Proc.)</summary>
+    /// <summary>False when the installed yt-dlp is too old to know --js-runtimes (before 2025.11.12).</summary>
+    public static bool JsRuntimeFlagSupported = true;
+
+    /// <summary>Call with the output of "yt-dlp --version" to learn whether --js-runtimes can be used.</summary>
+    public static void NoteVersion(string version)
+    {
+        var parts = (version ?? "").Trim().Split('.');
+        if (parts.Length < 3) return;
+        if (!int.TryParse(parts[0], out var y) || !int.TryParse(parts[1], out var m) || !int.TryParse(parts[2], out var d)) return;
+        JsRuntimeFlagSupported = y * 10000 + m * 100 + d >= 20251112;
+    }
+
+    /// <summary>Path of the small JavaScript engine YouTube downloads need (QuickJS, or Deno if you put it there).</summary>
+    public static string JsEngine()
+    {
+        return Tools.Find("qjs") ?? Tools.Find("deno");
+    }
+
+    /// <summary>Cookies, the JavaScript engine and the YouTube client choice.</summary>
     public static void AddCommon(List<string> args, string cookieSpec)
     {
         AddCookies(args, cookieSpec);
+        var qjs = Tools.Find("qjs");
+        if (qjs != null && JsRuntimeFlagSupported) { args.Add("--js-runtimes"); args.Add("quickjs:" + qjs); }
         if (!string.IsNullOrEmpty(ClientOverride)) { args.Add("--extractor-args"); args.Add(ClientOverride); }
     }
 
@@ -58,7 +78,7 @@ public static class YtDlp
     static string BotCheckMessage()
     {
         var msg = "YouTube is asking Grab to prove it isn't a bot.";
-        if (Tools.Find("deno") == null) msg += " deno.exe is missing from the bin folder, and YouTube needs it.";
+        if (JsEngine() == null) msg += " qjs.exe is missing from the bin folder, and YouTube needs it.";
         msg += " Try Settings > Update yt-dlp. If it keeps happening, use Firefox cookies or a cookies.txt file from a browser where you're signed in to YouTube.";
         return msg;
     }

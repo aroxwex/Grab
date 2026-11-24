@@ -107,18 +107,19 @@ public partial class MainWindow : Window
 
         var yt = Tools.Find("yt-dlp");
         var ff = Tools.Find("ffmpeg");
-        var deno = Tools.Find("deno");
+        var js = YtDlp.JsEngine();
         var ver = yt != null ? await YtDlp.VersionAsync() : "";
+        YtDlp.NoteVersion(ver);
 
         YtVersionText.Text = yt == null ? "yt-dlp not found" : "yt-dlp " + ver;
-        FfmpegText.Text = (ff == null ? "ffmpeg not found" : "ffmpeg ready") + "   ·   " + (deno == null ? "deno not found" : "deno ready");
+        FfmpegText.Text = (ff == null ? "ffmpeg not found" : "ffmpeg ready") + "   ·   " + (js == null ? "js helper not found" : "js helper ready");
 
         if (yt == null)
             ShowMessage("yt-dlp not found. Put yt-dlp.exe in the bin folder next to Grab.exe.", true);
         else if (ff == null)
             ShowMessage("ffmpeg not found: merging, MP3 and trimming won't work. Put ffmpeg.exe and ffprobe.exe in the bin folder.", true);
-        else if (deno == null)
-            ShowMessage("deno.exe not found in the bin folder. YouTube needs it, so YouTube downloads may fail.", true);
+        else if (js == null)
+            ShowMessage("qjs.exe not found in the bin folder. YouTube needs it, so YouTube downloads may fail.", true);
 
         if (yt != null) _engineTask = AutoUpdateEngineAsync();
     }
@@ -135,6 +136,7 @@ public partial class MainWindow : Window
         cfg.LastEngineCheck = DateTime.Now.Ticks;
         SettingsStore.Save();
         var ver = await YtDlp.VersionAsync();
+        YtDlp.NoteVersion(ver);
         if (!string.IsNullOrEmpty(ver)) YtVersionText.Text = "yt-dlp " + ver;
     }
 
